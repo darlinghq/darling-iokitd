@@ -13,7 +13,9 @@
 		<key>org.darlinghq.iokitd</key>
 		<true/>
 	</dict>
-	<key>EnableTransactions</key>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
 	<true/>
 </dict>
 </plist>
