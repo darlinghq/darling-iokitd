@@ -1,7 +1,7 @@
 #include "iokitmigServer.h"
 #include <os/log.h>
 
-#define STUB() os_log_error(OS_LOG_DEFAULT, "%d STUB called: %s", getpid(), __FUNCTION__)
+#define STUB() os_log(OS_LOG_DEFAULT, "%d STUB called: %s", getpid(), __FUNCTION__)
 
 kern_return_t is_io_object_get_class
 (
@@ -18,25 +18,6 @@ kern_return_t is_io_object_conforms_to
 	mach_port_t object,
 	io_name_t className,
 	boolean_t *conforms
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_iterator_next
-(
-	mach_port_t iterator,
-	mach_port_t *object
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_iterator_reset
-(
-	mach_port_t iterator
 )
 {
     STUB();
@@ -371,16 +352,6 @@ kern_return_t is_io_registry_entry_create_iterator
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_iterator_is_valid
-(
-	mach_port_t iterator,
-	boolean_t *is_valid
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
 kern_return_t is_io_catalog_send_data
 (
 	mach_port_t master_port,
@@ -641,19 +612,6 @@ kern_return_t is_io_service_get_state
 	uint64_t *state,
 	uint32_t *busy_state,
 	uint64_t *accumulated_busy_time
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_service_get_matching_services_ool
-(
-	mach_port_t master_port,
-	io_buf_ptr_t matching,
-	mach_msg_type_number_t matchingCnt,
-	kern_return_t *result,
-	mach_port_t *existing
 )
 {
     STUB();
@@ -977,18 +935,6 @@ kern_return_t is_io_service_get_matching_service_bin
 	io_struct_inband_t matching,
 	mach_msg_type_number_t matchingCnt,
 	mach_port_t *service
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_service_get_matching_services_bin
-(
-	mach_port_t master_port,
-	io_struct_inband_t matching,
-	mach_msg_type_number_t matchingCnt,
-	mach_port_t *existing
 )
 {
     STUB();
