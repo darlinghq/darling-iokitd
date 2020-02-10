@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>org.darlinghq.iokitd</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/sbin/iokitd</string>
+	</array>
+	<key>MachServices</key>
+	<dict>
+		<key>org.darlinghq.iokitd</key>
+		<true/>
+	</dict>
+	<key>EnableTransactions</key>
+	<true/>
+</dict>
+</plist>
+
