@@ -7,6 +7,7 @@
 #include "iokitd.h"
 #include "iokitmig.h"
 #include "IOObject.h"
+#include "IODisplayConnectX11.h"
 
 extern "C" {
 #include "iokitmigServer.h"
@@ -14,6 +15,8 @@ extern "C" {
 
 static const char* SERVICE_NAME = "org.darlinghq.iokitd";
 mach_port_t g_masterPort, g_deathPort;
+
+static void discoverAllDevices();
 
 int main(int argc, const char** argv)
 {
@@ -28,11 +31,17 @@ int main(int argc, const char** argv)
 		return 1;
 	}
 
-	// TODO: Build IOKit registry here
-
 	ret = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &g_deathPort);
+	if (ret != KERN_SUCCESS)
+	{
+		os_log_error(OS_LOG_DEFAULT, "%d failed to allocate notification port: %d", getpid(), ret);
+		return 1;
+	}
 
-	dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
+	// Build IOKit registry here
+	discoverAllDevices();
+
+	dispatch_queue_t queue = dispatch_get_main_queue();
 	dispatch_source_t portSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_MACH_RECV, g_masterPort, 0, queue);
 
 	if (!portSource)
@@ -64,4 +73,10 @@ int main(int argc, const char** argv)
 
 	dispatch_main();
 	return 0;
+}
+
+static void discoverAllDevices()
+{
+	Registry* registry = Registry::instance();
+	IODisplayConnectX11::discoverDevices(registry);
 }

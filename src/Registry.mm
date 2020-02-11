@@ -4,14 +4,34 @@
 #include <CoreFoundation/CFString.h>
 #include <os/log.h>
 #include <stdexcept>
+#include "IOIterator.h"
 
 extern "C" {
 #include "iokitmigServer.h"
 }
 
+Registry* Registry::instance()
+{
+	static Registry reg;
+	return &reg;
+}
+
+IOIterator* Registry::iteratorForMatchingServices(NSDictionary* criteria) const
+{
+	std::vector<IOObject*> matching;
+
+	for (auto it = m_registeredServices.begin(); it != m_registeredServices.end(); it++)
+	{
+		if ((*it)->matches(criteria))
+			matching.push_back(*it);
+	}
+
+	return new IOIterator(matching);
+}
+
 void Registry::registerService(IOService* service)
 {
-	// TODO
+	m_registeredServices.push_back(service);
 }
 
 kern_return_t is_io_service_get_matching_services_ool
@@ -45,15 +65,17 @@ kern_return_t is_io_service_get_matching_services_bin
 		if (CFGetTypeID(criteria) != CFDictionaryGetTypeID())
 			throw std::runtime_error("io_service_get_matching_services_bin(): dictionary expected");
 
-		NSDictionary* dictCriteria = (NSDictionary*) criteria;
-
-		// dictCriteria example:
+		// Criteria example:
 		// IOProviderClass -> IODisplayConnect
-
+		IOIterator* iterator = Registry::instance()->iteratorForMatchingServices((NSDictionary*) criteria);
 		CFShow(criteria);
 		CFRelease(criteria);
 
-		return KERN_NOT_SUPPORTED;
+		*existing = iterator->port();
+
+		iterator->releaseLater();
+
+		return KERN_SUCCESS;
 	}
 	catch (const std::exception& e)
 	{

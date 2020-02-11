@@ -1,11 +1,11 @@
 #include "IOService.h"
 
 IOService::IOService()
-: IOObject(false)
 {
 
 }
 
+// https://unix.superglobalmegacorp.com/xnu/newsrc/iokit/KernelConfigTables.cpp.html
 bool IOService::matches(NSDictionary* dict)
 {
 	NSDictionary* ourProps = matchingDictionary();

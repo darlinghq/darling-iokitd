@@ -6,6 +6,7 @@
 class IODisplayConnect : public IOService
 {
 public:
+	const char* className() const override;
 	NSDictionary* matchingDictionary() override;
 };
 

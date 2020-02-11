@@ -1,7 +1,7 @@
 #include "iokitmigServer.h"
 #include <os/log.h>
 
-#define STUB() os_log(OS_LOG_DEFAULT, "%d STUB called: %s", getpid(), __FUNCTION__)
+#define STUB() os_log(OS_LOG_DEFAULT, "%d STUB called: %s", getpid(), __FUNCTION__); printf("STUB called: %s\n", __FUNCTION__)
 
 kern_return_t is_io_object_get_class
 (

@@ -8,17 +8,24 @@ add_compile_options(
 
 add_definitions(-DIOKIT=1 -DIOKIT_ALL_IPC=1 -DIOKIT_SERVER_VERSION=20150101)
 
+find_package(X11 REQUIRED)
+if (NOT X11_Xrandr_FOUND)
+	message(FATAL "XRandR not found")
+endif (NOT X11_Xrandr_FOUND)
+
 include_directories(
 	${CMAKE_SOURCE_DIR}/src/launchd
 	${CMAKE_SOURCE_DIR}/src/lkm/osfmk
 	${CMAKE_SOURCE_DIR}/src/external/IOKitUser
+	${X11_INCLUDE_DIR}
+	${X11_Xrandr_INCLUDE_PATH}
 )
 include_directories(BEFORE ${CMAKE_SOURCE_DIR}/src/external/libcxx/include ${CMAKE_CURRENT_BINARY_DIR})
 
 mig(iokitmig.defs)
 
 set(iokitd_sources
-	src/main.cpp
+	src/main.mm
 	src/stubs.c
 	src/iokitd.cpp
 	src/Registry.mm
@@ -33,7 +40,7 @@ set(iokitd_sources
 )
 
 add_darling_executable(iokitd ${iokitd_sources})
-target_link_libraries(iokitd cxx CoreFoundation Foundation)
+target_link_libraries(iokitd cxx CoreFoundation Foundation X11 XRandR)
 
 install(TARGETS iokitd DESTINATION libexec/darling/usr/sbin)
 install(FILES org.darlinghq.iokitd.plist DESTINATION libexec/darling/System/Library/LaunchDaemons)

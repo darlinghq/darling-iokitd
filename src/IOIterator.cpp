@@ -4,7 +4,7 @@ extern "C" {
 }
 
 IOIterator::IOIterator(const std::vector<IOObject*>& objects)
-: IOObject(true), m_objects(objects)
+: m_objects(objects)
 {
 
 }

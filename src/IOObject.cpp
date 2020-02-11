@@ -2,10 +2,14 @@
 #include "iokitd.h"
 #include <stdexcept>
 #include <os/log.h>
+#include <dispatch/private.h>
+extern "C" {
+#include "iokitmigServer.h"
+}
 
 std::unordered_map<mach_port_t, IOObject*> IOObject::m_objects;
 
-IOObject::IOObject(bool userOwned)
+IOObject::IOObject()
 {
 	auto task = mach_task_self();
 	kern_return_t kr;
@@ -14,22 +18,52 @@ IOObject::IOObject(bool userOwned)
 	if (kr != KERN_SUCCESS)
 		throw std::runtime_error("Failed to allocate Mach port");
 
-	if (userOwned)
-	{
-		mach_port_t	oldTargetOfNotification	= MACH_PORT_NULL;
-		kr = mach_port_request_notification(task, m_port, MACH_NOTIFY_NO_SENDERS, 1, g_masterPort, MACH_MSG_TYPE_MAKE_SEND_ONCE, &oldTargetOfNotification);
-		if (kr != KERN_SUCCESS)
-			throw std::runtime_error("Failed to setup MACH_NOTIFY_NO_SENDERS");
-	}
+	// -> we have refcount of 1
+	kr = mach_port_insert_right(task, m_port, m_port, MACH_MSG_TYPE_MAKE_SEND);
+	if (kr != KERN_SUCCESS)
+		throw std::runtime_error("Failed to add Mach port send right");
+
+	m_dispatchSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_MACH_RECV, m_port, 0, dispatch_get_main_queue());
+
+	if (!m_dispatchSource)
+		throw std::runtime_error("Failed to create dispatch source");
+
+	dispatch_source_set_event_handler(m_dispatchSource, ^{
+		dispatch_mig_server(m_dispatchSource, is_iokit_subsystem.maxsize, iokit_server);
+	});
+	dispatch_resume(m_dispatchSource);
+
+	mach_port_t	oldTargetOfNotification	= MACH_PORT_NULL;
+	kr = mach_port_request_notification(task, m_port, MACH_NOTIFY_NO_SENDERS, 1, g_deathPort, MACH_MSG_TYPE_MAKE_SEND_ONCE, &oldTargetOfNotification);
+	if (kr != KERN_SUCCESS)
+		throw std::runtime_error("Failed to setup MACH_NOTIFY_NO_SENDERS");
 
 	m_objects.insert(std::make_pair(m_port, this));
 }
 
 IOObject::~IOObject()
 {
+	if (m_dispatchSource)
+		dispatch_release(m_dispatchSource);
+
 	m_objects.erase(m_port);
 
 	mach_port_deallocate(mach_task_self(), m_port);
+}
+
+void IOObject::retain()
+{
+	mach_port_mod_refs(mach_task_self(), m_port, MACH_PORT_RIGHT_SEND, 1);
+}
+
+void IOObject::release()
+{
+	mach_port_mod_refs(mach_task_self(), m_port, MACH_PORT_RIGHT_SEND, -1);
+}
+
+void IOObject::releaseLater()
+{
+	dispatch_async(dispatch_get_main_queue(), ^{ release(); });
 }
 
 IOObject* IOObject::lookup(mach_port_t port)
