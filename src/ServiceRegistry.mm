@@ -1,5 +1,5 @@
 #include "iokitd.h"
-#include "Registry.h"
+#include "ServiceRegistry.h"
 #include <IOCFUnserialize.h>
 #include <CoreFoundation/CFString.h>
 #include <os/log.h>
@@ -10,13 +10,13 @@ extern "C" {
 #include "iokitmigServer.h"
 }
 
-Registry* Registry::instance()
+ServiceRegistry* ServiceRegistry::instance()
 {
-	static Registry reg;
+	static ServiceRegistry reg;
 	return &reg;
 }
 
-IOIterator* Registry::iteratorForMatchingServices(NSDictionary* criteria) const
+IOIterator* ServiceRegistry::iteratorForMatchingServices(NSDictionary* criteria) const
 {
 	std::vector<IOObject*> matching;
 
@@ -29,7 +29,7 @@ IOIterator* Registry::iteratorForMatchingServices(NSDictionary* criteria) const
 	return new IOIterator(matching);
 }
 
-void Registry::registerService(IOService* service)
+void ServiceRegistry::registerService(IOService* service)
 {
 	m_registeredServices.push_back(service);
 }
@@ -67,7 +67,7 @@ kern_return_t is_io_service_get_matching_services_bin
 
 		// Criteria example:
 		// IOProviderClass -> IODisplayConnect
-		IOIterator* iterator = Registry::instance()->iteratorForMatchingServices((NSDictionary*) criteria);
+		IOIterator* iterator = ServiceRegistry::instance()->iteratorForMatchingServices((NSDictionary*) criteria);
 		CFShow(criteria);
 		CFRelease(criteria);
 

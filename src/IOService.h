@@ -1,9 +1,9 @@
 #ifndef IOKITD_IOSERVICE_H
 #define IOKITD_IOSERVICE_H
 #include <Foundation/NSDictionary.h>
-#include "IOObject.h"
+#include "IORegistryEntry.h"
 
-class IOService : public IOObject
+class IOService : public IORegistryEntry
 {
 public:
 	IOService();

@@ -3,6 +3,7 @@
 #include <liblaunch/bootstrap.h>
 #include <dispatch/dispatch.h>
 #include <dispatch/private.h>
+#include <IOKit/IOKitKeys.h>
 #include <cstdlib>
 #include "iokitd.h"
 #include "iokitmig.h"
@@ -77,6 +78,6 @@ int main(int argc, const char** argv)
 
 static void discoverAllDevices()
 {
-	Registry* registry = Registry::instance();
+	ServiceRegistry* registry = ServiceRegistry::instance();
 	IODisplayConnectX11::discoverDevices(registry);
 }

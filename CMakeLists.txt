@@ -24,14 +24,17 @@ include_directories(BEFORE ${CMAKE_SOURCE_DIR}/src/external/libcxx/include ${CMA
 
 mig(iokitmig.defs)
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
+
 set(iokitd_sources
 	src/main.mm
 	src/stubs.c
 	src/iokitd.cpp
-	src/Registry.mm
+	src/ServiceRegistry.mm
 	src/IOObject.cpp
 	src/IOIterator.cpp
 	src/IOService.mm
+	src/IORegistryEntry.mm
 	src/IODisplayConnect.mm
 	src/IODisplayConnectX11.mm
 	${CMAKE_CURRENT_BINARY_DIR}/iokitmigServer.c

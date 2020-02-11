@@ -3,9 +3,11 @@
 #include <X11/extensions/Xrandr.h>
 #include <IOKit/graphics/IOGraphicsTypes.h>
 #include <CoreFoundation/CFByteOrder.h>
+#include <dispatch/dispatch.h>
 #include <cstdio>
 
 Display* IODisplayConnectX11::m_display;
+IORegistryEntry* IODisplayConnectX11::m_root;
 
 IODisplayConnectX11::IODisplayConnectX11(int index, NSDictionary* props)
 : m_index(index)
@@ -18,8 +20,20 @@ IODisplayConnectX11::~IODisplayConnectX11()
 	[m_props release];
 }
 
-void IODisplayConnectX11::discoverDevices(Registry* targetRegistry)
+NSDictionary* IODisplayConnectX11::getProperties()
 {
+	return m_props;
+}
+
+void IODisplayConnectX11::discoverDevices(ServiceRegistry* targetServiceRegistry)
+{
+	static dispatch_once_t once;
+
+	dispatch_once(&once, ^{
+		m_root = new IORegistryEntry;
+		m_root->registerInPlane(kIOServicePlane, "X11Display", IORegistryEntry::root());
+	});
+
 	if (!m_display)
 	{
 		m_display = XOpenDisplay(NULL);
@@ -89,11 +103,18 @@ void IODisplayConnectX11::discoverDevices(Registry* targetRegistry)
 					[props setObject: [NSNumber numberWithInt: year]
 							forKey: @(kDisplayYearOfManufacture)];
 				}
+				else
+				{
+					[props setObject: [NSNumber numberWithInt: i+1]
+							forKey: @(kDisplaySerialNumber)];
+				}
 
 				XRRFreeCrtcInfo(crtc);
 			}
-			
-			targetRegistry->registerService(new IODisplayConnectX11(i, props));
+
+			IODisplayConnectX11* ioDisplay = new IODisplayConnectX11(i, props);
+			targetServiceRegistry->registerService(ioDisplay);
+			ioDisplay->registerInPlane(kIOServicePlane, oinfo->name, m_root);
 			
 			XRRFreeOutputInfo(oinfo);
 		}

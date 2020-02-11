@@ -3,27 +3,6 @@
 
 #define STUB() os_log(OS_LOG_DEFAULT, "%d STUB called: %s", getpid(), __FUNCTION__); printf("STUB called: %s\n", __FUNCTION__)
 
-kern_return_t is_io_object_get_class
-(
-	mach_port_t object,
-	io_name_t className
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_object_conforms_to
-(
-	mach_port_t object,
-	io_name_t className,
-	boolean_t *conforms
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
 kern_return_t is_io_service_get_matching_services
 (
 	mach_port_t master_port,
@@ -266,26 +245,6 @@ kern_return_t is_io_connect_method_structureI_structureO
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_registry_entry_get_path
-(
-	mach_port_t registry_entry,
-	io_name_t plane,
-	io_string_t path
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_registry_get_root_entry
-(
-	mach_port_t master_port,
-	mach_port_t *root
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
 
 kern_return_t is_io_registry_entry_set_properties
 (
@@ -334,18 +293,6 @@ kern_return_t is_io_service_wait_quiet
 (
 	mach_port_t service,
 	mach_timespec_t wait_time
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_registry_entry_create_iterator
-(
-	mach_port_t registry_entry,
-	io_name_t plane,
-	uint32_t options,
-	mach_port_t *iterator
 )
 {
     STUB();
@@ -904,30 +851,6 @@ kern_return_t is_io_server_version
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_registry_entry_get_properties_bin
-(
-	mach_port_t registry_entry,
-	io_buf_ptr_t *properties,
-	mach_msg_type_number_t *propertiesCnt
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_registry_entry_get_property_bin
-(
-	mach_port_t registry_entry,
-	io_name_t plane,
-	io_name_t property_name,
-	uint32_t options,
-	io_buf_ptr_t *properties,
-	mach_msg_type_number_t *propertiesCnt
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
 
 kern_return_t is_io_service_get_matching_service_bin
 (
@@ -985,13 +908,24 @@ kern_return_t is_io_service_add_notification_bin_64
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_registry_entry_get_path_ool
+kern_return_t is_io_registry_entry_get_property_bin
 (
 	mach_port_t registry_entry,
 	io_name_t plane,
-	io_string_inband_t path,
-	io_buf_ptr_t *path_ool,
-	mach_msg_type_number_t *path_oolCnt
+	io_name_t property_name,
+	uint32_t options,
+	io_buf_ptr_t *properties,
+	mach_msg_type_number_t *propertiesCnt
+)
+{
+    STUB();
+    return KERN_NOT_SUPPORTED;
+}
+
+kern_return_t is_io_registry_get_root_entry
+(
+	mach_port_t master_port,
+	mach_port_t *root
 )
 {
     STUB();
@@ -1006,6 +940,19 @@ kern_return_t is_io_registry_entry_from_path_ool
 	mach_msg_type_number_t path_oolCnt,
 	kern_return_t *result,
 	mach_port_t *registry_entry
+)
+{
+    STUB();
+    return KERN_NOT_SUPPORTED;
+}
+
+kern_return_t is_io_registry_entry_get_path_ool
+ (
+    mach_port_t registry_entry,
+    io_name_t plane,
+    io_string_inband_t path,
+    io_buf_ptr_t *path_ool,
+    mach_msg_type_number_t *path_oolCnt
 )
 {
     STUB();

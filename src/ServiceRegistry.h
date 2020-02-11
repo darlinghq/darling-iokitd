@@ -5,12 +5,12 @@
 #import <Foundation/NSDictionary.h>
 #include "IOIterator.h"
 
-class Registry
+class ServiceRegistry
 {
 private:
-	Registry() {}
+	ServiceRegistry() {}
 public:
-	static Registry* instance();
+	static ServiceRegistry* instance();
 	void registerService(IOService* service);
 	IOIterator* iteratorForMatchingServices(NSDictionary* criteria) const;
 private:

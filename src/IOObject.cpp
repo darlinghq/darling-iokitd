@@ -1,6 +1,7 @@
 #include "IOObject.h"
 #include "iokitd.h"
 #include <stdexcept>
+#include <cstring>
 #include <os/log.h>
 #include <dispatch/private.h>
 extern "C" {
@@ -74,6 +75,11 @@ IOObject* IOObject::lookup(mach_port_t port)
 	return nullptr;
 }
 
+bool IOObject::conformsTo(const char* className)
+{
+	return std::strcmp(className, this->className());
+}
+
 boolean_t IOObject::deathNotify(mach_msg_header_t *request, mach_msg_header_t *reply)
 {
 	mach_no_senders_notification_t* Request = (mach_no_senders_notification_t*) request;
@@ -105,4 +111,33 @@ boolean_t IOObject::deathNotify(mach_msg_header_t *request, mach_msg_header_t *r
 		Reply->RetCode = MIG_BAD_ID;
 		return false;
 	}
+}
+
+kern_return_t is_io_object_get_class
+(
+	mach_port_t object,
+	io_name_t className
+)
+{
+	IOObject* o = IOObject::lookup(object);
+	if (!o)
+		return KERN_INVALID_ARGUMENT;
+
+	strlcpy(className, o->className(), sizeof(io_name_t));
+    return KERN_SUCCESS;
+}
+
+kern_return_t is_io_object_conforms_to
+(
+	mach_port_t object,
+	io_name_t className,
+	boolean_t *conforms
+)
+{
+    IOObject* o = IOObject::lookup(object);
+	if (!o)
+		return KERN_INVALID_ARGUMENT;
+
+	*conforms = o->conformsTo(className);
+	return KERN_SUCCESS;
 }

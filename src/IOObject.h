@@ -12,6 +12,7 @@ public:
 	virtual ~IOObject();
 
 	virtual const char* className() const = 0;
+	virtual bool conformsTo(const char* className);
 
 	void retain();
 	void release();
