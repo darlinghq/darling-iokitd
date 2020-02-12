@@ -3,35 +3,12 @@
 
 #define STUB() os_log(OS_LOG_DEFAULT, "%d STUB called: %s", getpid(), __FUNCTION__); printf("STUB called: %s\n", __FUNCTION__)
 
-kern_return_t is_io_service_get_matching_services
-(
-	mach_port_t master_port,
-	io_string_t matching,
-	mach_port_t *existing
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
 kern_return_t is_io_registry_entry_get_property
 (
 	mach_port_t registry_entry,
 	io_name_t property_name,
 	io_buf_ptr_t *properties,
 	mach_msg_type_number_t *propertiesCnt
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_registry_create_iterator
-(
-	mach_port_t master_port,
-	io_name_t plane,
-	uint32_t options,
-	mach_port_t *iterator
 )
 {
     STUB();
@@ -50,38 +27,6 @@ kern_return_t is_io_registry_iterator_enter_entry
 kern_return_t is_io_registry_iterator_exit_entry
 (
 	mach_port_t iterator
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_registry_entry_from_path
-(
-	mach_port_t master_port,
-	io_string_t path,
-	mach_port_t *registry_entry
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_registry_entry_get_name
-(
-	mach_port_t registry_entry,
-	io_name_t name
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_registry_entry_get_properties
-(
-	mach_port_t registry_entry,
-	io_buf_ptr_t *properties,
-	mach_msg_type_number_t *propertiesCnt
 )
 {
     STUB();
@@ -902,30 +847,6 @@ kern_return_t is_io_service_add_notification_bin_64
 	io_async_ref64_t reference,
 	mach_msg_type_number_t referenceCnt,
 	mach_port_t *notification
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_registry_entry_get_property_bin
-(
-	mach_port_t registry_entry,
-	io_name_t plane,
-	io_name_t property_name,
-	uint32_t options,
-	io_buf_ptr_t *properties,
-	mach_msg_type_number_t *propertiesCnt
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_registry_get_root_entry
-(
-	mach_port_t master_port,
-	mach_port_t *root
 )
 {
     STUB();

@@ -2,6 +2,7 @@
 #include "ServiceRegistry.h"
 #include <IOCFUnserialize.h>
 #include <CoreFoundation/CFString.h>
+#include <IOKit/IOReturn.h>
 #include <os/log.h>
 #include <stdexcept>
 #include "IOIterator.h"
@@ -43,7 +44,8 @@ kern_return_t is_io_service_get_matching_services_ool
 	mach_port_t *existing
 )
 {
-    return KERN_NOT_SUPPORTED;
+	// TODO
+    return kIOReturnUnsupported;
 }
 
 kern_return_t is_io_service_get_matching_services_bin
@@ -75,7 +77,7 @@ kern_return_t is_io_service_get_matching_services_bin
 
 		iterator->releaseLater();
 
-		return KERN_SUCCESS;
+		return kIOReturnSuccess;
 	}
 	catch (const std::exception& e)
 	{
@@ -83,6 +85,17 @@ kern_return_t is_io_service_get_matching_services_bin
 		if (errorString)
 			CFRelease(errorString);
 
-		return KERN_INVALID_ARGUMENT;
+		return kIOReturnBadArgument;
 	}
+}
+
+kern_return_t is_io_service_get_matching_services
+(
+	mach_port_t master_port,
+	io_string_t matching,
+	mach_port_t *existing
+)
+{
+    // Old unsupported API
+    return kIOReturnUnsupported;
 }

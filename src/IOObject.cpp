@@ -4,6 +4,7 @@
 #include <cstring>
 #include <os/log.h>
 #include <dispatch/private.h>
+#include <IOKit/IOReturn.h>
 extern "C" {
 #include "iokitmigServer.h"
 }
@@ -77,7 +78,7 @@ IOObject* IOObject::lookup(mach_port_t port)
 
 bool IOObject::conformsTo(const char* className)
 {
-	return std::strcmp(className, this->className());
+	return std::strcmp(className, this->className()) == 0;
 }
 
 boolean_t IOObject::deathNotify(mach_msg_header_t *request, mach_msg_header_t *reply)
@@ -124,7 +125,7 @@ kern_return_t is_io_object_get_class
 		return KERN_INVALID_ARGUMENT;
 
 	strlcpy(className, o->className(), sizeof(io_name_t));
-    return KERN_SUCCESS;
+    return kIOReturnSuccess;
 }
 
 kern_return_t is_io_object_conforms_to
@@ -139,5 +140,5 @@ kern_return_t is_io_object_conforms_to
 		return KERN_INVALID_ARGUMENT;
 
 	*conforms = o->conformsTo(className);
-	return KERN_SUCCESS;
+	return kIOReturnSuccess;
 }

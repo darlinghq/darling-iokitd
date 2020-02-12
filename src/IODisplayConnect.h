@@ -8,6 +8,7 @@ class IODisplayConnect : public IOService
 public:
 	const char* className() const override;
 	NSDictionary* matchingDictionary() override;
+	bool conformsTo(const char* className) override;
 };
 
 #endif

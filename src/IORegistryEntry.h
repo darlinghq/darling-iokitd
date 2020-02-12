@@ -18,6 +18,7 @@ public:
 	std::string getPath(const char* plane);
 	std::set<IORegistryEntry*> getParents(const char* plane);
 	std::set<IORegistryEntry*> getChildren(const char* plane);
+	std::string getName(const char* plane = nullptr);
 
 	static IORegistryEntry* root();
 	

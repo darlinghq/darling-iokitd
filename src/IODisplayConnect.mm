@@ -14,3 +14,10 @@ NSDictionary* IODisplayConnect::matchingDictionary()
 		@"IOClass": [NSString stringWithUTF8String: clsName]
 	};
 }
+
+bool IODisplayConnect::conformsTo(const char* className)
+{
+	if (std::strcmp(className, "IODisplay") == 0)
+		return true;
+	return IOService::conformsTo(className);
+}

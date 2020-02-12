@@ -1,4 +1,5 @@
 #include "IOIterator.h"
+#include <IOKit/IOReturn.h>
 extern "C" {
 #include "iokitmigServer.h"
 }
@@ -41,13 +42,13 @@ kern_return_t is_io_iterator_next
 		if (next != nullptr)
 		{
 			*object = next->port();
-			return KERN_SUCCESS;
+			return kIOReturnSuccess;
 		}
 		else
-			return KERN_SUCCESS;
+			return kIOReturnNoDevice;
 	}
 	else
-		return KERN_INVALID_ARGUMENT;
+		return kIOReturnBadArgument;
 }
 
 kern_return_t is_io_iterator_reset
@@ -57,11 +58,11 @@ kern_return_t is_io_iterator_reset
 {
 	IOIterator* iter = dynamic_cast<IOIterator*>(IOObject::lookup(iterator));
 	if (!iter)
-		return KERN_INVALID_ARGUMENT;
+		return kIOReturnBadArgument;
 	else
 	{
 		iter->reset();
-		return KERN_SUCCESS;
+		return kIOReturnSuccess;
 	}
 }
 
@@ -74,5 +75,5 @@ kern_return_t is_io_iterator_is_valid
 {
 	IOIterator* iter = dynamic_cast<IOIterator*>(IOObject::lookup(iterator));
 	*is_valid = iter != nullptr;
-    return KERN_SUCCESS;
+    return kIOReturnSuccess;
 }

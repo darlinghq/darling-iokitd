@@ -55,6 +55,7 @@ void IODisplayConnectX11::discoverDevices(ServiceRegistry* targetServiceRegistry
 
 		for (int i = 0; i < screen->noutput; i++)
 		{
+			bool needFakeEDID = true;
 			XRROutputInfo *oinfo = XRRGetOutputInfo(m_display, screen, screen->outputs[i]);
 			NSMutableDictionary* props = [NSMutableDictionary dictionaryWithCapacity: 6];
 
@@ -78,9 +79,6 @@ void IODisplayConnectX11::discoverDevices(ServiceRegistry* targetServiceRegistry
 				// Getting the EDID property of various virtual displays succeeds, but returns 0 length data
 				if (XRRGetOutputProperty(m_display, screen->outputs[i], edidAtom, 0, 100, FALSE, FALSE, AnyPropertyType, &actualType, &actualFormat, &nitems, &bytesAfter, &prop) == Success && nitems > 17)
 				{
-					puts("IODisplayConnectX11::discoverDevices #10");
-					printf("Got %p of %d bytes\n", prop, nitems);
-
 					[props setObject: [NSData dataWithBytes: prop length: nitems]
 							forKey: @(kIODisplayEDIDKey)];
 					
@@ -102,14 +100,32 @@ void IODisplayConnectX11::discoverDevices(ServiceRegistry* targetServiceRegistry
 							forKey: @(kDisplayWeekOfManufacture)];
 					[props setObject: [NSNumber numberWithInt: year]
 							forKey: @(kDisplayYearOfManufacture)];
-				}
-				else
-				{
-					[props setObject: [NSNumber numberWithInt: i+1]
-							forKey: @(kDisplaySerialNumber)];
+
+					needFakeEDID = false;
 				}
 
 				XRRFreeCrtcInfo(crtc);
+			}
+
+			if (needFakeEDID)
+			{
+				// generate a fake EDID, because otherwise IOKitUser will completely disregard our serial here
+				uint8_t fakeEDID[128];
+
+				memset(fakeEDID, 0, sizeof(fakeEDID));
+				memset(fakeEDID+1, 0xff, 6);
+				fakeEDID[12] = i+1;
+
+				uint8_t csum = 0;
+				for (int i = 0; i < sizeof(fakeEDID); i++)
+					csum += fakeEDID[i];
+				fakeEDID[127] = (256 - csum) % 256;
+
+				[props setObject: [NSData dataWithBytes: fakeEDID length: sizeof(fakeEDID)]
+						forKey: @(kIODisplayEDIDKey)];
+
+				[props setObject: [NSNumber numberWithInt: i+1]
+						forKey: @(kDisplaySerialNumber)];
 			}
 
 			IODisplayConnectX11* ioDisplay = new IODisplayConnectX11(i, props);
