@@ -11,10 +11,14 @@ class IODisplayConnectX11 : IODisplayConnect
 {
 private:
 	IODisplayConnectX11(int index, NSDictionary* props);
+
 public:
 	~IODisplayConnectX11();
 	static void discoverDevices(ServiceRegistry* targetRegistry);
 	NSDictionary* getProperties() override;
+
+	// TODO: Make the whole display server abstraction nicer?
+	static Display* getDisplay() { return m_display; }
 private:
 	static Display* m_display;
 	// Index of the corresponding XrandR output

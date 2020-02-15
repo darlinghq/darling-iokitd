@@ -165,7 +165,7 @@ kern_return_t _io_pm_assertion_create
 	pid_t callerPid;
 	audit_token_to_au32(token, nullptr, nullptr, nullptr, nullptr, nullptr, &callerPid, nullptr, nullptr);
 
-	std::cout << "Creating assertion for PID " << callerPid << std::endl;
+	// std::cout << "Creating assertion for PID " << callerPid << std::endl;
 	*assertion_id = AppAssertions::get(callerPid)->createAssertion(pa);
 	*return_code = 0;
 	
