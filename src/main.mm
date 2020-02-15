@@ -4,11 +4,13 @@
 #include <dispatch/dispatch.h>
 #include <dispatch/private.h>
 #include <IOKit/IOKitKeys.h>
+#include <IOKit/pwr_mgt/IOPMLibPrivate.h>
 #include <cstdlib>
 #include "iokitd.h"
 #include "iokitmig.h"
 #include "IOObject.h"
 #include "IODisplayConnectX11.h"
+#include "PowerAssertions.h"
 
 extern "C" {
 #include "iokitmigServer.h"
@@ -33,7 +35,7 @@ int main(int argc, const char** argv)
 		return 1;
 	}
 
-	ret = bootstrap_check_in(bootstrap_port, SERVICE_NAME, &g_powerManagementPort);
+	ret = bootstrap_check_in(bootstrap_port, kIOPMServerBootstrapName, &g_powerManagementPort);
 
 	if (ret != KERN_SUCCESS)
 	{
@@ -50,6 +52,7 @@ int main(int argc, const char** argv)
 
 	// Build IOKit registry here
 	discoverAllDevices();
+	initPM();
 
 	dispatch_queue_t queue = dispatch_get_main_queue();
 
@@ -100,6 +103,7 @@ int main(int argc, const char** argv)
 
 	dispatch_resume(portSource);
 	dispatch_resume(deathSource);
+	dispatch_resume(pwrMgmtPortSource);
 
 	os_log(OS_LOG_DEFAULT, "iokitd up and running.");
 

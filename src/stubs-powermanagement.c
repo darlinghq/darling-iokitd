@@ -131,25 +131,6 @@ kern_return_t _io_pm_last_wake_time
 }
 
 
-/* Routine io_pm_assertion_create */
-
-kern_return_t _io_pm_assertion_create
-(
-	mach_port_t server,
-	audit_token_t token,
-	vm_offset_t props,
-	mach_msg_type_number_t propsCnt,
-	int *assertion_id,
-	int *disableAppSleep,
-	int *enTrIntensity,
-	int *return_code
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-
 /* Routine io_pm_assertion_set_properties */
 
 kern_return_t _io_pm_assertion_set_properties
@@ -167,26 +148,6 @@ kern_return_t _io_pm_assertion_set_properties
     STUB();
     return KERN_NOT_SUPPORTED;
 }
-
-
-/* Routine io_pm_assertion_retain_release */
-
-kern_return_t _io_pm_assertion_retain_release
-(
-	mach_port_t server,
-	audit_token_t token,
-	int assertion_id,
-	int action,
-	int *retainCnt,
-	int *disableAppSleep,
-	int *enableAppSleep,
-	int *return_code
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
 
 /* Routine io_pm_assertion_copy_details */
 

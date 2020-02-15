@@ -39,6 +39,8 @@ set(iokitd_sources
 	src/IORegistryEntry.mm
 	src/IODisplayConnect.mm
 	src/IODisplayConnectX11.mm
+	src/PowerAssertions.mm
+	src/PowerAssertionsX11.mm
 	${CMAKE_CURRENT_BINARY_DIR}/iokitmigServer.c
 	${CMAKE_CURRENT_BINARY_DIR}/powermanagementServer.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../IOKitUser/IOCFSerialize.c
