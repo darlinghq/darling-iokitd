@@ -207,9 +207,6 @@ kern_return_t is_io_registry_entry_get_properties_bin
 
 	NSDictionary* props = e->getProperties();
 
-	printf("iokitd: returning: ");
-	CFShow(props);
-
 	CFDataRef data = IOCFSerialize(props, kIOCFSerializeToBinary);
 
 	*propertiesCnt = CFDataGetLength(data);
