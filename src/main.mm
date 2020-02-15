@@ -12,10 +12,11 @@
 
 extern "C" {
 #include "iokitmigServer.h"
+#include "powermanagementServer.h"
 }
 
 static const char* SERVICE_NAME = "org.darlinghq.iokitd";
-mach_port_t g_masterPort, g_deathPort;
+mach_port_t g_masterPort, g_deathPort, g_powerManagementPort;
 
 static void discoverAllDevices();
 
@@ -28,7 +29,15 @@ int main(int argc, const char** argv)
 
 	if (ret != KERN_SUCCESS)
 	{
-		os_log_error(OS_LOG_DEFAULT, "%d bootstrap_check_in() failed with error %d", getpid(), ret);
+		os_log_error(OS_LOG_DEFAULT, "%d bootstrap_check_in(%s) failed with error %d", getpid(), SERVICE_NAME, ret);
+		return 1;
+	}
+
+	ret = bootstrap_check_in(bootstrap_port, SERVICE_NAME, &g_powerManagementPort);
+
+	if (ret != KERN_SUCCESS)
+	{
+		os_log_error(OS_LOG_DEFAULT, "%d bootstrap_check_in(%s) failed with error %d", getpid(), SERVICE_NAME, ret);
 		return 1;
 	}
 
@@ -43,6 +52,10 @@ int main(int argc, const char** argv)
 	discoverAllDevices();
 
 	dispatch_queue_t queue = dispatch_get_main_queue();
+
+	////////////////////////////////
+	// IOKit main port            //
+	////////////////////////////////
 	dispatch_source_t portSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_MACH_RECV, g_masterPort, 0, queue);
 
 	if (!portSource)
@@ -55,6 +68,24 @@ int main(int argc, const char** argv)
 		dispatch_mig_server(portSource, is_iokit_subsystem.maxsize, iokit_server);
 	});
 
+	////////////////////////////////
+	// powerd main port           //
+	////////////////////////////////
+	dispatch_source_t pwrMgmtPortSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_MACH_RECV, g_powerManagementPort, 0, queue);
+
+	if (!pwrMgmtPortSource)
+	{
+		os_log_error(OS_LOG_DEFAULT, "%d dispatch_source_create() failed for pwr mgmt main port", getpid());
+		return 1;
+	}
+
+	dispatch_source_set_event_handler(pwrMgmtPortSource, ^{
+		dispatch_mig_server(pwrMgmtPortSource, _powermanagement_subsystem.maxsize, powermanagement_server); // FIXME
+	});
+
+	////////////////////////////////
+	// unused port notifications  //
+	////////////////////////////////
 	dispatch_source_t deathSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_MACH_RECV, g_deathPort, 0, queue);
 
 	if (!deathSource)

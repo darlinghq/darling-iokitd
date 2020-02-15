@@ -12,9 +12,9 @@
 	<dict>
 		<key>org.darlinghq.iokitd</key>
 		<true/>
+		<key>com.apple.PowerManagement.control</key>
+		<true/>
 	</dict>
-	<key>RunAtLoad</key>
-	<true/>
 	<key>KeepAlive</key>
 	<true/>
 </dict>

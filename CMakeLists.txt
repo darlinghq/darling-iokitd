@@ -23,12 +23,14 @@ include_directories(
 include_directories(BEFORE ${CMAKE_SOURCE_DIR}/src/external/libcxx/include ${CMAKE_CURRENT_BINARY_DIR})
 
 mig(iokitmig.defs)
+mig(powermanagement.defs)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
 
 set(iokitd_sources
 	src/main.mm
 	src/stubs.c
+	src/stubs-powermanagement.c
 	src/iokitd.cpp
 	src/ServiceRegistry.mm
 	src/IOObject.cpp
@@ -38,6 +40,7 @@ set(iokitd_sources
 	src/IODisplayConnect.mm
 	src/IODisplayConnectX11.mm
 	${CMAKE_CURRENT_BINARY_DIR}/iokitmigServer.c
+	${CMAKE_CURRENT_BINARY_DIR}/powermanagementServer.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../IOKitUser/IOCFSerialize.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../IOKitUser/IOCFUnserialize.tab.c
 )
