@@ -15,7 +15,7 @@ endif (NOT X11_Xrandr_FOUND)
 
 include_directories(
 	${CMAKE_SOURCE_DIR}/src/launchd
-	${CMAKE_SOURCE_DIR}/src/lkm/osfmk
+	${CMAKE_SOURCE_DIR}/src/external/lkm/osfmk
 	${CMAKE_SOURCE_DIR}/src/external/IOKitUser
 	${X11_INCLUDE_DIR}
 	${X11_Xrandr_INCLUDE_PATH}
