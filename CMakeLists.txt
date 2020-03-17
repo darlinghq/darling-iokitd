@@ -1,12 +1,11 @@
 project(iokitd)
 
 add_compile_options(
-	-nostdinc
-	-nostdinc++
 	-Wno-gcc-compat
 )
 
 add_definitions(-DIOKIT=1 -DIOKIT_ALL_IPC=1 -DIOKIT_SERVER_VERSION=20150101)
+add_definitions(-nostdinc -nostdinc++)
 
 find_package(X11 REQUIRED)
 if (NOT X11_Xrandr_FOUND)
