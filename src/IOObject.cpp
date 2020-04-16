@@ -142,3 +142,19 @@ kern_return_t is_io_object_conforms_to
 	*conforms = o->conformsTo(className);
 	return kIOReturnSuccess;
 }
+
+kern_return_t is_io_object_get_retain_count
+(
+ mach_port_t object,
+ uint32_t *retainCount
+)
+{
+ IOObject* o = IOObject::lookup(object);
+ if (!o)
+ {
+  // Unlike other methods, this just returns 0 for invalid ports.
+  *retainCount = 0;
+  return KERN_SUCCESS;
+ }
+ return mach_port_get_refs(mach_task_self(), o->port(), MACH_PORT_RIGHT_SEND, retainCount);
+}

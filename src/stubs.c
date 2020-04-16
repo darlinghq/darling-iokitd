@@ -214,16 +214,6 @@ kern_return_t is_io_registry_entry_in_plane
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_object_get_retain_count
-(
-	mach_port_t object,
-	uint32_t *retainCount
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
 kern_return_t is_io_service_get_busy_state
 (
 	mach_port_t service,
