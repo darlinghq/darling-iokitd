@@ -138,32 +138,46 @@ kern_return_t is_io_registry_entry_get_path
 	return kIOReturnSuccess;
 }
 
-static void addChildren(std::vector<IOObject*>& target, IORegistryEntry* e, const char* plane, bool recursively)
+static void addEntries
+(
+	std::vector<IOObject*>& target,
+	IORegistryEntry* e,
+	const char* plane,
+	bool children,
+	bool recursively
+)
 {
-	auto set = e->getChildren(plane);
+	auto set = children ? e->getChildren(plane) : e->getParents(plane);
 
 	target.insert(target.end(), set.begin(), set.end());
 
 	if (recursively)
 	{
 		for (auto c : set)
-			addChildren(target, c, plane, true);
+			addEntries(target, c, plane, children, true);
 	}
 }
 
-static kern_return_t ioRegistryCreateIterator(IORegistryEntry* root, io_name_t plane, uint32_t options, mach_port_t *iterator)
+static mach_port_t ioRegistryCreateIterator
+(
+	IORegistryEntry* root,
+	io_name_t plane,
+	uint32_t options,
+	bool includeRoot,
+	bool children
+)
 {
-	std::vector<IOObject*> objects(1, root);
+	std::vector<IOObject*> objects;
+	if (includeRoot)
+		objects.push_back(root);
 
 	// Depth-First Search
-	addChildren(objects, root, plane, options & kIORegistryIterateRecursively);
+	addEntries(objects, root, plane, children, options & kIORegistryIterateRecursively);
 
 	IOIterator* i = new IOIterator(objects);
 
-	*iterator = i->port();
 	i->releaseLater();
-
-    return kIOReturnSuccess;
+	return i->port();
 }
 
 kern_return_t is_io_registry_entry_create_iterator
@@ -176,11 +190,12 @@ kern_return_t is_io_registry_entry_create_iterator
 {
 	IORegistryEntry* e = dynamic_cast<IORegistryEntry*>(IOObject::lookup(registry_entry));
 
-	*iterator = 0;
+	*iterator = MACH_PORT_NULL;
 	if (!e)
 		return kIOReturnBadArgument;
-	
-	return ioRegistryCreateIterator(e, plane, options, iterator);
+
+	*iterator = ioRegistryCreateIterator(e, plane, options, true, true);
+	return kIOReturnSuccess;
 }
 
 kern_return_t is_io_registry_create_iterator
@@ -191,7 +206,58 @@ kern_return_t is_io_registry_create_iterator
 	mach_port_t *iterator
 )
 {
-    return ioRegistryCreateIterator(IORegistryEntry::root(), plane, options, iterator);
+	*iterator = ioRegistryCreateIterator(IORegistryEntry::root(), plane, options, true, true);
+	return kIOReturnSuccess;
+}
+
+kern_return_t is_io_registry_entry_get_child_iterator
+(
+	mach_port_t registry_entry,
+	io_name_t plane,
+	mach_port_t *iterator
+)
+{
+	IORegistryEntry* e = dynamic_cast<IORegistryEntry*>(IOObject::lookup(registry_entry));
+
+	*iterator = MACH_PORT_NULL;
+	if (!e)
+		return kIOReturnBadArgument;
+
+	*iterator = ioRegistryCreateIterator(e, plane, 0, false, true);
+	return kIOReturnSuccess;
+}
+
+kern_return_t is_io_registry_entry_get_parent_iterator
+(
+	mach_port_t registry_entry,
+	io_name_t plane,
+	mach_port_t *iterator
+)
+{
+	IORegistryEntry* e = dynamic_cast<IORegistryEntry*>(IOObject::lookup(registry_entry));
+
+	*iterator = MACH_PORT_NULL;
+	if (!e)
+		return kIOReturnBadArgument;
+
+	*iterator = ioRegistryCreateIterator(e, plane, 0, false, false);
+	return kIOReturnSuccess;
+}
+
+kern_return_t is_io_registry_entry_get_name_in_plane
+(
+	mach_port_t registry_entry,
+	io_name_t plane,
+	io_name_t name
+)
+{
+	IORegistryEntry* e = dynamic_cast<IORegistryEntry*>(IOObject::lookup(registry_entry));
+	if (!e)
+		return kIOReturnBadArgument;
+
+	std::string entryName = e->getName(plane);
+	strncpy(name, entryName.c_str(), sizeof(io_name_t) - 1);
+	return kIOReturnSuccess;
 }
 
 kern_return_t is_io_registry_entry_get_properties_bin

@@ -45,28 +45,6 @@ kern_return_t is_io_registry_entry_get_property_bytes
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_registry_entry_get_child_iterator
-(
-	mach_port_t registry_entry,
-	io_name_t plane,
-	mach_port_t *iterator
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_registry_entry_get_parent_iterator
-(
-	mach_port_t registry_entry,
-	io_name_t plane,
-	mach_port_t *iterator
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
 kern_return_t is_io_service_close
 (
 	mach_port_t connection
@@ -304,17 +282,6 @@ kern_return_t is_io_service_request_probe
 (
 	mach_port_t service,
 	uint32_t options
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_registry_entry_get_name_in_plane
-(
-	mach_port_t registry_entry,
-	io_name_t plane,
-	io_name_t name
 )
 {
     STUB();
