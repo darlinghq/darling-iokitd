@@ -3,6 +3,7 @@
 #include <unordered_map>
 #include <mach/mach.h>
 #include <dispatch/dispatch.h>
+#include <memory>
 
 class IOObject
 {
@@ -19,6 +20,9 @@ public:
 	void releaseLater();
 
 	mach_port_t port() { return m_port; }
+
+	// TODO: This should start adding a reference and all call sites should retain.
+	// At the latest when we support objects that may go away (e.g. USB devices).
 	static IOObject* lookup(mach_port_t port);
 	static boolean_t deathNotify(mach_msg_header_t *request, mach_msg_header_t *reply);
 private:

@@ -430,17 +430,6 @@ kern_return_t is_io_connect_unmap_memory
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_registry_entry_get_location_in_plane
-(
-	mach_port_t registry_entry,
-	io_name_t plane,
-	io_name_t location
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
 kern_return_t is_io_registry_entry_get_property_recursively
 (
 	mach_port_t registry_entry,
@@ -449,18 +438,6 @@ kern_return_t is_io_registry_entry_get_property_recursively
 	uint32_t options,
 	io_buf_ptr_t *properties,
 	mach_msg_type_number_t *propertiesCnt
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_service_get_state
-(
-	mach_port_t service,
-	uint64_t *state,
-	uint32_t *busy_state,
-	uint64_t *accumulated_busy_time
 )
 {
     STUB();
@@ -660,16 +637,6 @@ kern_return_t is_io_service_add_notification_ool_64
 	mach_msg_type_number_t referenceCnt,
 	kern_return_t *result,
 	mach_port_t *notification
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_registry_entry_get_registry_entry_id
-(
-	mach_port_t registry_entry,
-	uint64_t *entry_id
 )
 {
     STUB();

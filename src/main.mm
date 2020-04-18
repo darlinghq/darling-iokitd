@@ -114,5 +114,7 @@ int main(int argc, const char** argv)
 static void discoverAllDevices()
 {
 	ServiceRegistry* registry = ServiceRegistry::instance();
+	// Trick to make sure the root object gets instantiated first and gets the lowest ID
+	IORegistryEntry::root();
 	IODisplayConnectX11::discoverDevices(registry);
 }

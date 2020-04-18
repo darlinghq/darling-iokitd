@@ -81,7 +81,7 @@ kern_return_t is_io_service_get_matching_services_bin
 	}
 	catch (const std::exception& e)
 	{
-		os_log_error(OS_LOG_DEFAULT, e.what());
+		os_log_error(OS_LOG_DEFAULT, "is_io_service_get_matching_services_bin: %s", e.what());
 		if (errorString)
 			CFRelease(errorString);
 

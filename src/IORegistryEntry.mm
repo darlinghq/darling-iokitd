@@ -14,6 +14,35 @@ extern "C" {
 #import <Foundation/NSString.h>
 #import <Foundation/NSDictionary.h>
 
+uint64_t IORegistryEntry::m_nextId = 0x100000000;
+std::unordered_map<uint64_t, IORegistryEntry*> IORegistryEntry::m_entriesById;
+std::shared_mutex IORegistryEntry::m_entriesByIdMutex;
+
+IORegistryEntry::IORegistryEntry()
+{
+	std::unique_lock l(m_entriesByIdMutex);
+	m_id = m_nextId++;
+	m_entriesById.emplace(m_id, this);
+}
+
+IORegistryEntry::~IORegistryEntry()
+{
+	std::unique_lock l(m_entriesByIdMutex);
+	m_entriesById.erase(m_id);
+}
+
+IORegistryEntry* IORegistryEntry::findById(uint64_t id)
+{
+	std::shared_lock l(m_entriesByIdMutex);
+	auto it = m_entriesById.find(id);
+	if (it == m_entriesById.end())
+		return nullptr;
+	
+	IORegistryEntry* e = it->second;
+	e->retain();
+	return e;
+}
+
 NSDictionary* IORegistryEntry::getProperties()
 {
 	return @{};
@@ -101,10 +130,19 @@ std::string IORegistryEntry::getPath(const char* plane)
 	return path;
 }
 
+class RootIORegistryEntry : public IORegistryEntry
+{
+public:
+	RootIORegistryEntry()
+	{
+		m_name.insert({ kIOServicePlane, "Root" });
+	}
+};
+
 IORegistryEntry* IORegistryEntry::root()
 {
-	static IORegistryEntry e;
-	return &e;
+	static std::shared_ptr<RootIORegistryEntry> e = std::make_shared<RootIORegistryEntry>();
+	return e.get();
 }
 
 std::string IORegistryEntry::getName(const char* plane)
@@ -321,6 +359,31 @@ kern_return_t is_io_registry_entry_get_name
 	strlcpy(name, sname.c_str(), sizeof(io_name_t));
 
     return kIOReturnSuccess;
+}
+
+kern_return_t is_io_registry_entry_get_registry_entry_id
+(
+	mach_port_t registry_entry,
+	uint64_t *entry_id
+)
+{
+	IORegistryEntry* e = dynamic_cast<IORegistryEntry*>(IOObject::lookup(registry_entry));
+	if (!e)
+		return kIOReturnBadArgument;
+	
+	*entry_id = e->id();
+    return kIOReturnSuccess;
+}
+
+kern_return_t is_io_registry_entry_get_location_in_plane
+(
+	mach_port_t registry_entry,
+	io_name_t plane,
+	io_name_t location
+)
+{
+	// Plane locations are optional
+    return KERN_NOT_SUPPORTED;
 }
 
 kern_return_t is_io_registry_entry_from_path

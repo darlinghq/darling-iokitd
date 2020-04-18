@@ -3,6 +3,7 @@
 #include "IODisplayConnect.h"
 #include "ServiceRegistry.h"
 #include <vector>
+#include <memory>
 #include <X11/Xlib.h>
 #import <Foundation/NSData.h>
 #import <Foundation/NSString.h>
