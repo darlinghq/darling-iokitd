@@ -112,63 +112,6 @@ kern_return_t is_io_connect_set_properties
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_connect_method_scalarI_scalarO
-(
-	mach_port_t connection,
-	uint32_t selector,
-	io_scalar_inband_t input,
-	mach_msg_type_number_t inputCnt,
-	io_scalar_inband_t output,
-	mach_msg_type_number_t *outputCnt
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_connect_method_scalarI_structureO
-(
-	mach_port_t connection,
-	uint32_t selector,
-	io_scalar_inband_t input,
-	mach_msg_type_number_t inputCnt,
-	io_struct_inband_t output,
-	mach_msg_type_number_t *outputCnt
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_connect_method_scalarI_structureI
-(
-	mach_port_t connection,
-	uint32_t selector,
-	io_scalar_inband_t input,
-	mach_msg_type_number_t inputCnt,
-	io_struct_inband_t inputStruct,
-	mach_msg_type_number_t inputStructCnt
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_connect_method_structureI_structureO
-(
-	mach_port_t connection,
-	uint32_t selector,
-	io_struct_inband_t input,
-	mach_msg_type_number_t inputCnt,
-	io_struct_inband_t output,
-	mach_msg_type_number_t *outputCnt
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-
 kern_return_t is_io_registry_entry_set_properties
 (
 	mach_port_t registry_entry,
@@ -532,28 +475,6 @@ kern_return_t is_io_connect_unmap_memory_from_task
 	uint32_t memory_type,
 	task_t from_task,
 	mach_vm_address_t address
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_connect_method
-(
-	mach_port_t connection,
-	uint32_t selector,
-	io_scalar_inband64_t scalar_input,
-	mach_msg_type_number_t scalar_inputCnt,
-	io_struct_inband_t inband_input,
-	mach_msg_type_number_t inband_inputCnt,
-	mach_vm_address_t ool_input,
-	mach_vm_size_t ool_input_size,
-	io_struct_inband_t inband_output,
-	mach_msg_type_number_t *inband_outputCnt,
-	io_scalar_inband64_t scalar_output,
-	mach_msg_type_number_t *scalar_outputCnt,
-	mach_vm_address_t ool_output,
-	mach_vm_size_t *ool_output_size
 )
 {
     STUB();

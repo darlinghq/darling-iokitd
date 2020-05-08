@@ -17,16 +17,20 @@
  along with Darling.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#ifndef POWERASSERTIONSX11_H
-#define POWERASSERTIONSX11_H
-#include "PowerAssertions.h"
+#ifndef IOKITD_IOUSERCLIENT_H
+#define IOKITD_IOUSERCLIENT_H
+#include "IOService.h"
+#include "IOUserClientApple.h"
 
-class PowerAssertionPreventDisplaySleep : public PowerAssertion
+// https://unix.superglobalmegacorp.com/xnu/newsrc/iokit/IOKit/IOUserClient.h.html
+// http://www.alauda.ro/2013/12/iouserclient-and-ioexternalmethod/
+
+class IOUserClient : public IOService
 {
-protected:
-	void activate() override;
-	void deactivate() override;
+public:
+	IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments *arguments);
+	IOExternalMethod *getTargetAndMethodForIndex(IOService **targetP, UInt32 index);
+	virtual IOExternalMethod *getExternalMethodForIndex(UInt32 index) = 0;
 };
 
 #endif
-
