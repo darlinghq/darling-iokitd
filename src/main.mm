@@ -24,6 +24,7 @@
 #include <dispatch/private.h>
 #include <IOKit/IOKitKeys.h>
 #include <IOKit/pwr_mgt/IOPMLibPrivate.h>
+#include <bsm/libbsm.h>
 #include <cstdlib>
 #include "iokitd.h"
 #include "iokitmig.h"
@@ -41,6 +42,7 @@ static const char* SERVICE_NAME = "org.darlinghq.iokitd";
 mach_port_t g_masterPort, g_deathPort, g_powerManagementPort;
 
 static void discoverAllDevices();
+static boolean_t iokitSaveAuditTrail(mach_msg_header_t *message, mach_msg_header_t *reply);
 
 int main(int argc, const char** argv)
 {
@@ -88,7 +90,7 @@ int main(int argc, const char** argv)
 	}
 
 	dispatch_source_set_event_handler(portSource, ^{
-		dispatch_mig_server(portSource, is_iokit_subsystem.maxsize, iokit_server);
+		dispatch_mig_server(portSource, is_iokit_subsystem.maxsize, iokitSaveAuditTrail);
 	});
 
 	////////////////////////////////
@@ -129,6 +131,13 @@ int main(int argc, const char** argv)
 
 	dispatch_main();
 	return 0;
+}
+
+static boolean_t iokitSaveAuditTrail(mach_msg_header_t *message, mach_msg_header_t *reply)
+{
+	const mach_msg_context_trailer_t* trailer = reinterpret_cast<mach_msg_context_trailer_t*>(reinterpret_cast<char*>(message) + message->msgh_size);
+	audit_token_to_au32(trailer->msgh_audit, nullptr, nullptr, nullptr, nullptr, nullptr, &g_iokitCurrentCallerPID, nullptr, nullptr);
+	return iokit_server(message, reply);
 }
 
 static void discoverAllDevices()

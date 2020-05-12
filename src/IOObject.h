@@ -27,7 +27,6 @@
 class IOObject
 {
 public:
-	// If userOwned is true, the object will be deallocated when there are no senders left
 	IOObject();
 	virtual ~IOObject();
 

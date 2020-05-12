@@ -23,13 +23,37 @@
 #include "IOUserClient.h"
 #include <IOSurface/IOSurfacePriv.h>
 #include "ServiceRegistry.h"
+#include <unordered_map>
+#include <sys/types.h>
+#include <stdint.h>
+#include <dispatch/dispatch.h>
+
+// Try to get the right (generic) type definitions.
+// In particular, we really want EGLNativeDisplayType to be void *,
+// not int as it is if __APPLE__ is defined.
+#undef APPLE
+#undef __APPLE__
+
+#define __unix__
+#define EGL_NO_X11
+
+#include <EGL/egl.h>
+
+#define APPLE
+#define __APPLE__
+
+class IOSurface;
 
 class IOSurfaceRoot : public IOUserClient
 {
+private:
+	IOSurfaceRoot();
+	~IOSurfaceRoot();
 public:
 	const char* className() const override;
 	NSDictionary* matchingDictionary() override;
 	IOExternalMethod *getExternalMethodForIndex(UInt32 index) override;
+	static IOSurfaceRoot* instance();
 	static void registerSelf(ServiceRegistry* targetServiceRegistry);
 private:
 	IOReturn createSurface(const void* inputData, void* outputData, IOByteCount inputCount, IOByteCount* outputCount);
@@ -41,6 +65,34 @@ private:
 	IOReturn decrementSurfaceUseCount(IOSurfaceID surfaceID);
 	IOReturn lookupByMachPort(mach_port_t remoteMachPort, void* outputData, IOByteCount* outputCount);
 	IOReturn getSurfaceMachPort(IOSurfaceID surfaceID, mach_port_t* remoteMachPort);
+
+	void registerCaller();
+	void callerDied(pid_t pid);
+protected:
+	void surfaceDestroyed(IOSurfaceID myId);
+	EGLDisplay display() { return m_display; }
+	bool hasDisplay() const { return m_display != EGL_NO_DISPLAY; }
+private:
+	struct SurfaceMapping
+	{
+		uint64_t memoryAddress;
+		// incrementSurfaceUseCount / decrementSurfaceUseCount
+		uint32_t useCount = 0;
+	};
+	struct RegisteredProcess
+	{
+		pid_t pid;
+		std::unordered_map<IOSurfaceID, SurfaceMapping> surfaces;
+		dispatch_source_t procSource;
+	};
+
+	std::unordered_map<pid_t, RegisteredProcess> m_processes;
+	std::unordered_map<IOSurfaceID, IOSurface*> m_surfaces;
+	IOSurfaceID m_nextSurfaceID = 1;
+
+	EGLDisplay m_display;
+
+	friend class IOSurface;
 };
 
 #endif

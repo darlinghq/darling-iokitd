@@ -22,6 +22,8 @@
 #include <stdarg.h>
 #include <string>
 
+pid_t g_iokitCurrentCallerPID;
+
 void throwCFStringException(CFStringRef format, ...)
 {
 	CFStringRef text;

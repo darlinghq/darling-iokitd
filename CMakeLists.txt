@@ -41,6 +41,7 @@ set(iokitd_sources
 	src/PowerAssertions.mm
 	src/PowerAssertionsX11.mm
 	src/IOSurfaceRoot.mm
+	src/IOSurface.mm
 	src/IOUserClient.mm
 	src/IOUserClientApple.mm
 	${CMAKE_CURRENT_BINARY_DIR}/iokitmigServer.c
@@ -50,7 +51,7 @@ set(iokitd_sources
 )
 
 add_darling_executable(iokitd ${iokitd_sources})
-target_link_libraries(iokitd cxx CoreFoundation Foundation X11 XRandR Xext)
+target_link_libraries(iokitd cxx CoreFoundation Foundation X11 XRandR Xext EGL GL IOSurface)
 
 install(TARGETS iokitd DESTINATION libexec/darling/usr/sbin)
 install(FILES org.darlinghq.iokitd.plist DESTINATION libexec/darling/System/Library/LaunchDaemons)

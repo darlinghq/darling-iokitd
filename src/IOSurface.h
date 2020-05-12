@@ -16,20 +16,28 @@
  You should have received a copy of the GNU General Public License
  along with Darling.  If not, see <http://www.gnu.org/licenses/>.
 */
+#ifndef IOKITD_IOSURFACE_H
+#define IOKITD_IOSURFACE_H
+#include "IOObject.h"
+#include <IOSurface/IOSurfacePriv.h>
+#import <Foundation/NSDictionary.h>
 
-#ifndef _IOKITD_H
-#define _IOKITD_H
-#include <mach/mach.h>
-#include <CoreFoundation/CFString.h>
-#include <sys/types.h>
+class IOSurface : public IOObject
+{
+public:
+	IOSurface(IOSurfaceID myId, NSDictionary* properies);
+	~IOSurface();
+	const char* className() const override;
+	bool isGlobal() const { return m_global; }
 
-#define asldebug(...) os_log_debug(OS_LOG_DEFAULT, __VA_ARGS__)
-
-void throwCFStringException(CFStringRef format, ...);
-extern mach_port_t g_masterPort, g_deathPort;
-
-// iokitd calls only - not valid for powerd!
-extern pid_t g_iokitCurrentCallerPID;
+	void incrementUseCount();
+	void decrementUseCount();
+	void lock();
+	void unlock();
+private:
+	IOSurfaceID m_id;
+	bool m_global = false;
+	int m_useCount = 0;
+};
 
 #endif
-

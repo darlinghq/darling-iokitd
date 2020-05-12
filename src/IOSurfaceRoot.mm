@@ -18,13 +18,51 @@
 */
 #include "IOSurfaceRoot.h"
 #import <Foundation/NSString.h>
+#include "iokitd.h"
+#include "IOSurface.h"
+#include "IODisplayConnectX11.h"
+#include <IOKit/IOCFUnserialize.h>
+#include <stdexcept>
+#include <iostream>
+
+IOSurfaceRoot::IOSurfaceRoot()
+{
+	m_display = eglGetDisplay(IODisplayConnectX11::getDisplay());
+
+    if (m_display == EGL_NO_DISPLAY)
+        return;
+
+	EGLConfig config;
+	int num_config;
+
+	EGLint const attribute_list[] = {
+		EGL_RED_SIZE, 1,
+		EGL_GREEN_SIZE, 1,
+		EGL_BLUE_SIZE, 1,
+		EGL_NONE
+	};
+
+    eglInitialize(m_display, NULL, NULL);
+    eglChooseConfig(m_display, attribute_list, &config, 1, &num_config);
+
+    eglBindAPI(EGL_OPENGL_API);
+}
+
+IOSurfaceRoot::~IOSurfaceRoot()
+{
+	eglTerminate(m_display);
+}
+
+IOSurfaceRoot* IOSurfaceRoot::instance()
+{
+	static IOSurfaceRoot instance;
+	return &instance;
+}
 
 void IOSurfaceRoot::registerSelf(ServiceRegistry* targetServiceRegistry)
 {
-	static IOSurfaceRoot instance;
-	
-	targetServiceRegistry->registerService(&instance);
-	instance.registerInPlane(kIOServicePlane, "IOSurfaceRoot", IORegistryEntry::root());
+	targetServiceRegistry->registerService(instance());
+	instance()->registerInPlane(kIOServicePlane, "IOSurfaceRoot", IORegistryEntry::root());
 }
 
 const char* IOSurfaceRoot::className() const
@@ -101,6 +139,8 @@ IOExternalMethod *IOSurfaceRoot::getExternalMethodForIndex(UInt32 index)
 		},
 	};
 
+	registerCaller();
+
 	if (index >= sizeof(methods)/sizeof(IOExternalMethod))
 		return nullptr;
 
@@ -111,7 +151,38 @@ IOExternalMethod *IOSurfaceRoot::getExternalMethodForIndex(UInt32 index)
 
 IOReturn IOSurfaceRoot::createSurface(const void* inputData, void* outputData, IOByteCount inputCount, IOByteCount* outputCount)
 {
-	return KERN_NOT_SUPPORTED;
+	if (!hasDisplay())
+		return KERN_FAILURE;
+		
+	CFStringRef errorString;
+	CFTypeRef cf = IOCFUnserializeBinary(static_cast<const char*>(inputData), inputCount, nullptr, 0, &errorString);
+
+	if (!cf)
+	{
+		CFShow(errorString);
+		CFRelease(errorString);
+		return KERN_INVALID_ARGUMENT;
+	}
+	if (CFGetTypeID(cf) != CFDictionaryGetTypeID())
+	{
+		CFRelease(cf);
+		return KERN_INVALID_ARGUMENT;
+	}
+
+	IOReturn ret = KERN_SUCCESS;
+	
+	try
+	{
+		IOSurface* surface = new IOSurface(m_nextSurfaceID++, (NSDictionary*) cf);
+	}
+	catch (const std::exception& e)
+	{
+		std::cerr << "Error in IOSurfaceRoot::createSurface(): " << e.what() << std::endl;
+		ret = KERN_INVALID_ARGUMENT;
+	}
+
+	CFRelease(cf);
+	return ret;
 }
 
 IOReturn IOSurfaceRoot::releaseSurface(IOSurfaceID surfaceID)
@@ -152,4 +223,55 @@ IOReturn IOSurfaceRoot::lookupByMachPort(mach_port_t remoteMachPort, void* outpu
 IOReturn IOSurfaceRoot::getSurfaceMachPort(IOSurfaceID surfaceID, mach_port_t* remoteMachPort)
 {
 	return KERN_NOT_SUPPORTED;
+}
+
+void IOSurfaceRoot::registerCaller()
+{
+	if (m_processes.find(g_iokitCurrentCallerPID) != m_processes.end())
+		return; // Already registered
+
+	RegisteredProcess proc;
+	const pid_t caller = g_iokitCurrentCallerPID;
+	proc.pid = caller;
+	proc.procSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_PROC, caller, DISPATCH_PROC_EXIT, dispatch_get_main_queue());
+
+	dispatch_source_set_event_handler(proc.procSource, ^{
+		callerDied(caller);
+		dispatch_source_cancel(proc.procSource);
+	});
+	dispatch_resume(proc.procSource);
+
+	m_processes.emplace(proc.pid, std::move(proc));
+}
+
+void IOSurfaceRoot::callerDied(pid_t pid)
+{
+	auto it = m_processes.find(pid);
+	if (it == m_processes.end())
+		return; // Shouldn't happen
+
+	RegisteredProcess& proc = it->second;
+	dispatch_release(proc.procSource);
+
+	for (auto& [surfaceID, mapping] : proc.surfaces)
+	{
+		auto itSurface = m_surfaces.find(surfaceID);
+		if (itSurface == m_surfaces.end())
+			continue;
+
+		while (mapping.useCount > 0)
+		{
+			itSurface->second->decrementUseCount();
+			mapping.useCount--;
+		}
+
+		itSurface->second->release();
+	}
+
+	m_processes.erase(it);
+}
+
+void IOSurfaceRoot::surfaceDestroyed(IOSurfaceID myId)
+{
+	m_surfaces.erase(myId);
 }
