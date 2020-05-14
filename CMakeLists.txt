@@ -13,13 +13,10 @@ if (NOT X11_Xrandr_FOUND)
 endif (NOT X11_Xrandr_FOUND)
 
 include_directories(
-	${CMAKE_SOURCE_DIR}/src/launchd
-	${CMAKE_SOURCE_DIR}/src/external/lkm/osfmk
-	${CMAKE_SOURCE_DIR}/src/external/IOKitUser
 	${X11_INCLUDE_DIR}
 	${X11_Xrandr_INCLUDE_PATH}
 )
-include_directories(BEFORE ${CMAKE_SOURCE_DIR}/src/external/libcxx/include ${CMAKE_CURRENT_BINARY_DIR})
+include_directories(BEFORE ${CMAKE_CURRENT_BINARY_DIR})
 
 mig(iokitmig.defs)
 mig(powermanagement.defs)
