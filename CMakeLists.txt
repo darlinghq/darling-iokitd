@@ -21,7 +21,7 @@ include_directories(BEFORE ${CMAKE_CURRENT_BINARY_DIR})
 mig(iokitmig.defs)
 mig(powermanagement.defs)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -mmacosx-version-min=10.12")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
 
 set(iokitd_sources
 	src/main.mm
