@@ -19,7 +19,7 @@
 
 #include "iokitd.h"
 #include "ServiceRegistry.h"
-#include <IOCFUnserialize.h>
+#include <IOKit/IOCFUnserialize.h>
 #include <CoreFoundation/CFString.h>
 #include <IOKit/IOReturn.h>
 #include <os/log.h>

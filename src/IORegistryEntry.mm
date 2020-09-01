@@ -1,6 +1,6 @@
 #include "IORegistryEntry.h"
 #include <stack>
-#include <IOCFSerialize.h>
+#include <IOKit/IOCFSerialize.h>
 #include <cstring>
 #include <vector>
 #include <IOKit/IOKitLib.h>

@@ -724,3 +724,43 @@ kern_return_t is_io_registry_entry_get_path_ool
     STUB();
     return KERN_NOT_SUPPORTED;
 }
+
+kern_return_t is_io_device_tree_entry_exists_with_name
+(
+	mach_port_t master_port,
+	io_name_t name,
+	boolean_t *exists
+)
+{
+	STUB();
+	return KERN_NOT_SUPPORTED;
+}
+
+kern_return_t is_io_registry_entry_get_properties_bin_buf
+(
+	mach_port_t registry_entry,
+	mach_vm_address_t buf,
+	mach_vm_size_t *bufsize,
+	io_buf_ptr_t *properties,
+	mach_msg_type_number_t *propertiesCnt
+)
+{
+	STUB();
+	return KERN_NOT_SUPPORTED;
+}
+
+kern_return_t is_io_registry_entry_get_property_bin_buf
+(
+	mach_port_t registry_entry,
+	io_name_t plane,
+	io_name_t property_name,
+	uint32_t options,
+	mach_vm_address_t buf,
+	mach_vm_size_t *bufsize,
+	io_buf_ptr_t *properties,
+	mach_msg_type_number_t *propertiesCnt
+)
+{
+	STUB();
+	return KERN_NOT_SUPPORTED;
+}

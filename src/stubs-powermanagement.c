@@ -142,6 +142,7 @@ kern_return_t _io_pm_assertion_set_properties
 	mach_msg_type_number_t propsCnt,
 	int *disableAppSleep,
 	int *enableAppSleep,
+	int *enTrIntensity,
 	int *return_code
 )
 {
@@ -244,7 +245,7 @@ kern_return_t _io_pm_get_uuid
 kern_return_t _io_pm_connection_create
 (
 	mach_port_t server,
-	mach_port_t task_in,
+	audit_token_t token,
 	string_t name,
 	int interests,
 	uint32_t *connection_id,
@@ -261,6 +262,7 @@ kern_return_t _io_pm_connection_create
 kern_return_t _io_pm_connection_schedule_notification
 (
 	mach_port_t server,
+	audit_token_t token,
 	uint32_t connection_id,
 	mach_port_t notify_port,
 	int disable,
@@ -291,6 +293,7 @@ kern_return_t _io_pm_connection_release
 kern_return_t _io_pm_connection_acknowledge_event
 (
 	mach_port_t server,
+	audit_token_t token,
 	uint32_t connection_id,
 	int messageToken,
 	vm_offset_t options,
@@ -370,6 +373,7 @@ kern_return_t _io_ps_release_pspowersource
 kern_return_t _io_ps_copy_powersources_info
 (
 	mach_port_t server,
+	audit_token_t token,
 	int pstype,
 	vm_offset_t *powersources,
 	mach_msg_type_number_t *powersourcesCnt,
@@ -468,7 +472,6 @@ kern_return_t _io_pm_set_dw_linger_interval
 	mach_port_t server,
 	audit_token_t token,
 	uint32_t newInterval,
-	uint32_t *oldInterval,
 	int *return_val
 )
 {
@@ -588,3 +591,17 @@ kern_return_t _io_pm_assertion_activity_aggregate
     return KERN_NOT_SUPPORTED;
 }
 
+/* Routine io_pm_set_exception_limits */
+
+kern_return_t _io_pm_set_exception_limits
+(
+	mach_port_t server,
+	audit_token_t token,
+	vm_offset_t props,
+	mach_msg_type_number_t propsCnt,
+	int *return_code
+)
+{
+	STUB();
+	return KERN_NOT_SUPPORTED;
+}
