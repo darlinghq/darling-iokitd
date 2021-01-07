@@ -48,7 +48,7 @@ set(iokitd_sources
 )
 
 add_darling_executable(iokitd ${iokitd_sources})
-target_link_libraries(iokitd cxx CoreFoundation Foundation X11 XRandR Xext EGL GL IOSurface)
+target_link_libraries(iokitd cxx bsm.0 CoreFoundation Foundation X11 XRandR Xext EGL GL IOSurface)
 
 install(TARGETS iokitd DESTINATION libexec/darling/usr/sbin)
 install(FILES org.darlinghq.iokitd.plist DESTINATION libexec/darling/System/Library/LaunchDaemons)
