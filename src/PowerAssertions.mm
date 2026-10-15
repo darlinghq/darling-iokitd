@@ -229,5 +229,5 @@ kern_return_t _io_pm_assertion_retain_release
 	else
 		return KERN_INVALID_ARGUMENT;
 
-    return KERN_NOT_SUPPORTED;
+	return KERN_SUCCESS;
 }
