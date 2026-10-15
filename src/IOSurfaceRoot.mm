@@ -21,13 +21,17 @@
 #include "iokitd.h"
 #include "IOSurface.h"
 #include "IODisplayConnectX11.h"
+#include <EGL/eglext.h>
 #include <IOKit/IOCFUnserialize.h>
 #include <stdexcept>
 #include <iostream>
 
 IOSurfaceRoot::IOSurfaceRoot()
 {
-	m_display = eglGetDisplay(IODisplayConnectX11::getDisplay());
+	// The native display is an Xlib Display. eglGetDisplay() would let Mesa
+	// guess the platform from EGL_PLATFORM, which Wayland sessions often set
+	// to "wayland"; Mesa then treats the Display as a wl_display and crashes.
+	m_display = eglGetPlatformDisplay(EGL_PLATFORM_X11_KHR, IODisplayConnectX11::getDisplay(), NULL);
 
     if (m_display == EGL_NO_DISPLAY)
         return;
