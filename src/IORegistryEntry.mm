@@ -602,3 +602,67 @@ kern_return_t is_io_registry_entry_get_property_bin
     return kr;
 }
 
+
+kern_return_t is_io_registry_entry_get_property_bytes
+(
+	mach_port_t registry_entry,
+	io_name_t property_name,
+	io_struct_inband_t data,
+	mach_msg_type_number_t *dataCnt
+)
+{
+	IORegistryEntry* e = dynamic_cast<IORegistryEntry*>(IOObject::lookup(registry_entry));
+	if (!e)
+		return kIOReturnBadArgument;
+
+	CFStringRef key = CFStringCreateWithCString(kCFAllocatorDefault, property_name, kCFStringEncodingUTF8);
+	if (!key)
+		return kIOReturnBadArgument;
+
+	CFTypeRef value = CFDictionaryGetValue((CFDictionaryRef) e->getProperties(), key);
+	CFRelease(key);
+	if (!value)
+		return kIOReturnNoResources;
+
+	const void* bytes;
+	CFIndex length;
+	char string[sizeof(io_struct_inband_t)];
+	int64_t number;
+	CFTypeID type = CFGetTypeID(value);
+
+	if (type == CFDataGetTypeID())
+	{
+		bytes = CFDataGetBytePtr((CFDataRef) value);
+		length = CFDataGetLength((CFDataRef) value);
+	}
+	else if (type == CFStringGetTypeID())
+	{
+		// Only fails when the string and its NUL do not fit the reply
+		if (!CFStringGetCString((CFStringRef) value, string, sizeof(string), kCFStringEncodingUTF8))
+			return kIOReturnIPCError;
+		bytes = string;
+		length = strlen(string) + 1;
+	}
+	else if (type == CFBooleanGetTypeID())
+	{
+		bool yes = CFBooleanGetValue((CFBooleanRef) value);
+		bytes = yes ? "Yes" : "No";
+		length = yes ? sizeof("Yes") : sizeof("No");
+	}
+	else if (type == CFNumberGetTypeID() && !CFNumberIsFloatType((CFNumberRef) value))
+	{
+		// The low-order bytes come first on a little-endian guest
+		CFNumberGetValue((CFNumberRef) value, kCFNumberSInt64Type, &number);
+		bytes = &number;
+		length = CFNumberGetByteSize((CFNumberRef) value);
+	}
+	else
+		return kIOReturnBadArgument;
+
+	if (*dataCnt < length)
+		return kIOReturnIPCError;
+
+	*dataCnt = length;
+	memcpy(data, bytes, length);
+	return kIOReturnSuccess;
+}

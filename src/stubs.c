@@ -33,18 +33,6 @@ kern_return_t is_io_registry_iterator_exit_entry
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_registry_entry_get_property_bytes
-(
-	mach_port_t registry_entry,
-	io_name_t property_name,
-	io_struct_inband_t data,
-	mach_msg_type_number_t *dataCnt
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
 kern_return_t is_io_service_close
 (
 	mach_port_t connection
