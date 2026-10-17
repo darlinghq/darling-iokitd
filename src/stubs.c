@@ -124,17 +124,6 @@ kern_return_t is_io_registry_entry_set_properties
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_registry_entry_in_plane
-(
-	mach_port_t registry_entry,
-	io_name_t plane,
-	boolean_t *inPlane
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
 kern_return_t is_io_service_get_busy_state
 (
 	mach_port_t service,
@@ -692,33 +681,6 @@ kern_return_t is_io_service_add_notification_bin_64
 	io_async_ref64_t reference,
 	mach_msg_type_number_t referenceCnt,
 	mach_port_t *notification
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_registry_entry_from_path_ool
-(
-	mach_port_t master_port,
-	io_string_inband_t path,
-	io_buf_ptr_t path_ool,
-	mach_msg_type_number_t path_oolCnt,
-	kern_return_t *result,
-	mach_port_t *registry_entry
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_registry_entry_get_path_ool
- (
-    mach_port_t registry_entry,
-    io_name_t plane,
-    io_string_inband_t path,
-    io_buf_ptr_t *path_ool,
-    mach_msg_type_number_t *path_oolCnt
 )
 {
     STUB();
