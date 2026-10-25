@@ -25,13 +25,30 @@
 #include <IOKit/IOCFUnserialize.h>
 #include <stdexcept>
 #include <iostream>
+#include <cstdlib>
 
 IOSurfaceRoot::IOSurfaceRoot()
 {
 	// The native display is an Xlib Display. eglGetDisplay() would let Mesa
 	// guess the platform from EGL_PLATFORM, which Wayland sessions often set
 	// to "wayland"; Mesa then treats the Display as a wl_display and crashes.
-	m_display = eglGetPlatformDisplay(EGL_PLATFORM_X11_KHR, IODisplayConnectX11::getDisplay(), NULL);
+	Display* display = IODisplayConnectX11::getDisplay();
+
+	// A NULL display means XOpenDisplay() failed, for example because the X
+	// server rejected the connection (unset or stale XAUTHORITY). Do not hand
+	// an unchecked NULL to EGL; run without it. createSurface() already
+	// reports KERN_FAILURE when hasDisplay() is false.
+	if (!display)
+	{
+		m_display = EGL_NO_DISPLAY;
+		std::cerr << "IOSurfaceRoot: cannot open X display "
+			<< (std::getenv("DISPLAY") ? std::getenv("DISPLAY") : "(DISPLAY unset)")
+			<< " or its :0 fallback; X11 surface acceleration disabled"
+			<< std::endl;
+		return;
+	}
+
+	m_display = eglGetPlatformDisplay(EGL_PLATFORM_X11_KHR, display, NULL);
 
     if (m_display == EGL_NO_DISPLAY)
         return;
@@ -69,7 +86,8 @@ IOSurfaceRoot::IOSurfaceRoot()
 
 IOSurfaceRoot::~IOSurfaceRoot()
 {
-	eglTerminate(m_display);
+	if (m_display != EGL_NO_DISPLAY)
+		eglTerminate(m_display);
 }
 
 IOSurfaceRoot* IOSurfaceRoot::instance()
