@@ -93,7 +93,7 @@ int main()
 	audit_token_t token = {{0, 0, 0, 0, 0, 4242, 0, 0}};
 	int id = AppAssertions::get(4242)->createAssertion(&display);
 
-	int count = -1, disable = 0, enable = 0, rc = -1;
+	int count = -1, disable = 7, enable = 7, rc = -1;
 	kern_return_t kr = _io_pm_assertion_retain_release(0, token, id + 1000, kIOPMAssertionMIGDoRetain, &count, &disable, &enable, &rc);
 	CHECK(kr == KERN_INVALID_ARGUMENT, "unknown id: kr=%d, want %d", kr, KERN_INVALID_ARGUMENT);
 
@@ -103,10 +103,14 @@ int main()
 	rc = -1;
 	kr = _io_pm_assertion_retain_release(0, token, id, kIOPMAssertionMIGDoRetain, &count, &disable, &enable, &rc);
 	CHECK(kr == KERN_SUCCESS && rc == 0 && count == 2, "retain: kr=%d rc=%d count=%d, want 0 0 2", kr, rc, count);
+	CHECK(disable == 0 && enable == 0, "retain: disable=%d enable=%d, want 0 0", disable, enable);
+
+	disable = enable = 7;
 
 	rc = -1;
 	kr = _io_pm_assertion_retain_release(0, token, id, kIOPMAssertionMIGDoRelease, &count, &disable, &enable, &rc);
 	CHECK(kr == KERN_SUCCESS && rc == 0 && count == 1, "first release: kr=%d rc=%d count=%d, want 0 0 1", kr, rc, count);
+	CHECK(disable == 0 && enable == 0, "release: disable=%d enable=%d, want 0 0", disable, enable);
 	CHECK(display.active == 1, "hold dropped while still retained");
 
 	rc = -1;
