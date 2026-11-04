@@ -7,7 +7,9 @@ dispatch, BSM and IOKit stand-ins, and checks that retain and release
 of a held assertion succeed and that the last release drops the hold.
 IOKitUser maps any MIG error from this routine to kIOReturnInternalError.
 
-Usage: CC="zig c++" python3 tests/pm-assertion-release.py [source dir]
+Usage: CC=clang++ python3 tests/pm-assertion-release.py [source dir]
+CC must be a clang-based C++ compiler (CC=clang++ or CC="zig c++") because the
+harness needs -fblocks, which g++ rejects.
 The optional source dir defaults to this checkout's src/.
 """
 import os, re, shlex, subprocess, sys, tempfile
@@ -132,5 +134,11 @@ with tempfile.TemporaryDirectory() as tmp:
     open(test, "w").write(HARNESS.replace("@@PARTS@@", "\n\n".join(parts)))
     exe = os.path.join(tmp, "test")
     cc = shlex.split(os.environ.get("CC", "c++"))
-    subprocess.run(cc + ["-x", "c++", "-std=c++17", "-fblocks", "-I", tmp, "-o", exe, test], check=True)
+    build = subprocess.run(cc + ["-x", "c++", "-std=c++17", "-fblocks", "-I", tmp, "-o", exe, test],
+                           stderr=subprocess.PIPE, text=True)
+    if build.returncode:
+        sys.stderr.write(build.stderr)
+        if "fblocks" in build.stderr:
+            sys.exit("CC=%s rejects -fblocks; use a clang-based compiler, e.g. CC=clang++" % shlex.join(cc))
+        sys.exit(build.returncode)
     sys.exit(subprocess.run([exe]).returncode)
