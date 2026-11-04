@@ -91,6 +91,10 @@ HARNESS = r"""
 #include "iokit_stub.h"
 #include "IORegistryEntry.h"
 #include <cstdio>
+#include <mutex>
+#include <shared_mutex>
+#include <set>
+#include <unordered_map>
 #include <sstream>
 #include <stack>
 #include <vector>
