@@ -13,6 +13,7 @@ extern "C" {
 
 #import <Foundation/NSString.h>
 #import <Foundation/NSDictionary.h>
+#include <CoreFoundation/CFNumber.h>
 
 uint64_t IORegistryEntry::m_nextId = 0x100000000;
 std::unordered_map<uint64_t, IORegistryEntry*> IORegistryEntry::m_entriesById;
