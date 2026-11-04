@@ -37,7 +37,7 @@ IOSurfaceRoot::IOSurfaceRoot()
         return;
 
 	EGLConfig config;
-	int num_config;
+	int num_config = 0;
 
 	EGLint const attribute_list[] = {
 		EGL_RED_SIZE, 1,
@@ -46,8 +46,23 @@ IOSurfaceRoot::IOSurfaceRoot()
 		EGL_NONE
 	};
 
-    eglInitialize(m_display, NULL, NULL);
-    eglChooseConfig(m_display, attribute_list, &config, 1, &num_config);
+	// On failure leave m_display as EGL_NO_DISPLAY: hasDisplay() is then false and
+	// createSurface() reports KERN_FAILURE instead of using a half-initialised display.
+	if (!eglInitialize(m_display, NULL, NULL))
+	{
+		std::cerr << "IOSurfaceRoot: eglInitialize failed, EGL error 0x" << std::hex << eglGetError() << std::dec << std::endl;
+		m_display = EGL_NO_DISPLAY;
+		return;
+	}
+
+	if (!eglChooseConfig(m_display, attribute_list, &config, 1, &num_config) || num_config < 1)
+	{
+		std::cerr << "IOSurfaceRoot: eglChooseConfig found no config (" << num_config
+			<< "), EGL error 0x" << std::hex << eglGetError() << std::dec << std::endl;
+		eglTerminate(m_display);
+		m_display = EGL_NO_DISPLAY;
+		return;
+	}
 
     eglBindAPI(EGL_OPENGL_API);
 }
