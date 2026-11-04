@@ -162,10 +162,12 @@ int main()
 	      "from_path_ool did not release the out-of-line path");
 
 	// Out-of-line path without its NUL
-	entry = 1234;
+	entry = 1234; g_deallocated = 0; g_deallocatedSize = 0;
 	kr = is_io_registry_entry_from_path_ool(0, empty, ool, strlen(ool), &result, &entry);
 	CHECK(kr == KERN_SUCCESS && result == kIOReturnBadArgument && entry == MACH_PORT_NULL,
 	      "from_path_ool unterminated: kr=%#x result=%#x entry=%u, want 0 %#x 0", kr, result, entry, kIOReturnBadArgument);
+	CHECK(g_deallocated == (vm_address_t) ool && g_deallocatedSize == strlen(ool),
+	      "from_path_ool unterminated did not release the out-of-line path");
 
 	// Missing entry
 	static io_string_inband_t missing = "IOService:/X11Display/HDMI-9";
