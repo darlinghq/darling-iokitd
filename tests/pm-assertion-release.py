@@ -92,7 +92,14 @@ int main()
 	int id = AppAssertions::get(4242)->createAssertion(&display);
 
 	int count = -1, disable = 0, enable = 0, rc = -1;
-	kern_return_t kr = _io_pm_assertion_retain_release(0, token, id, kIOPMAssertionMIGDoRetain, &count, &disable, &enable, &rc);
+	kern_return_t kr = _io_pm_assertion_retain_release(0, token, id + 1000, kIOPMAssertionMIGDoRetain, &count, &disable, &enable, &rc);
+	CHECK(kr == KERN_INVALID_ARGUMENT, "unknown id: kr=%d, want %d", kr, KERN_INVALID_ARGUMENT);
+
+	kr = _io_pm_assertion_retain_release(0, token, id, 99, &count, &disable, &enable, &rc);
+	CHECK(kr == KERN_INVALID_ARGUMENT, "invalid action: kr=%d, want %d", kr, KERN_INVALID_ARGUMENT);
+
+	rc = -1;
+	kr = _io_pm_assertion_retain_release(0, token, id, kIOPMAssertionMIGDoRetain, &count, &disable, &enable, &rc);
 	CHECK(kr == KERN_SUCCESS && rc == 0 && count == 2, "retain: kr=%d rc=%d count=%d, want 0 0 2", kr, rc, count);
 
 	rc = -1;
@@ -105,6 +112,11 @@ int main()
 	CHECK(kr == KERN_SUCCESS && rc == 0 && count == 0, "last release: kr=%d rc=%d count=%d, want 0 0 0", kr, rc, count);
 	CHECK(display.active == 0, "last release kept the hold");
 	CHECK(AppAssertions::get(4242)->getAssertion(id) == nullptr, "released assertion still listed");
+
+	count = 0;
+	kr = _io_pm_assertion_retain_release(0, token, id, kIOPMAssertionMIGDoRelease, &count, &disable, &enable, &rc);
+	CHECK(kr == KERN_INVALID_ARGUMENT, "release after last release: kr=%d, want %d", kr, KERN_INVALID_ARGUMENT);
+	CHECK(count >= 0, "release after last release made count %d negative", count);
 
 	printf("%s: %d checks, %d failed\n", failures ? "FAIL" : "PASS", checks, failures);
 	return failures != 0;
