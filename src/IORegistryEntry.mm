@@ -392,6 +392,21 @@ kern_return_t is_io_registry_entry_get_properties_bin
 	return serializeOutOfLine(e->getProperties(), properties, propertiesCnt);
 }
 
+kern_return_t is_io_registry_entry_get_properties_bin_buf
+(
+	mach_port_t registry_entry,
+	mach_vm_address_t buf,
+	mach_vm_size_t *bufsize,
+	io_buf_ptr_t *properties,
+	mach_msg_type_number_t *propertiesCnt
+)
+{
+	// 'buf' lives in the caller's address space. The caller reads the reply
+	// from there only when no out-of-line data comes back, so always
+	// answer out of line.
+	return is_io_registry_entry_get_properties_bin(registry_entry, properties, propertiesCnt);
+}
+
 kern_return_t is_io_registry_entry_get_properties
 (
 	mach_port_t registry_entry,
@@ -648,6 +663,22 @@ kern_return_t is_io_registry_entry_get_property_bin
 	// The reply is the value itself, which IORegistryEntryCreateCFProperty()
 	// returns as is.
 	return serializeOutOfLine(value, properties, propertiesCnt);
+}
+
+kern_return_t is_io_registry_entry_get_property_bin_buf
+(
+	mach_port_t registry_entry,
+	io_name_t plane,
+	io_name_t property_name,
+	uint32_t options,
+	mach_vm_address_t buf,
+	mach_vm_size_t *bufsize,
+	io_buf_ptr_t *properties,
+	mach_msg_type_number_t *propertiesCnt
+)
+{
+	// See is_io_registry_entry_get_properties_bin_buf()
+	return is_io_registry_entry_get_property_bin(registry_entry, plane, property_name, options, properties, propertiesCnt);
 }
 
 kern_return_t is_io_registry_entry_get_property_bytes
