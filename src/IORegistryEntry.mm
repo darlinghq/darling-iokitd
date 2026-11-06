@@ -334,12 +334,25 @@ kern_return_t is_io_registry_entry_get_name_in_plane
 	return kIOReturnSuccess;
 }
 
-// Replies with the binary serialization of 'value' in freshly allocated
-// memory, which MIG hands over to the caller.
+// Replies with the binary serialization of 'value' out of line.
+//
+// device.defs declares these replies "physicalcopy" without "dealloc", so
+// sending the reply copies the buffer and leaves it with us. Requests are
+// served one at a time on the main queue and each reply is sent before the
+// next request runs, so the previous reply's buffer can be released here.
 static kern_return_t serializeOutOfLine(id value, io_buf_ptr_t *properties, mach_msg_type_number_t *propertiesCnt)
 {
+	static vm_address_t lastReply;
+	static vm_size_t lastReplySize;
+
 	*properties = nullptr;
 	*propertiesCnt = 0;
+
+	if (lastReply)
+	{
+		vm_deallocate(mach_task_self(), lastReply, lastReplySize);
+		lastReply = 0;
+	}
 
 	CFDataRef data = IOCFSerialize((CFTypeRef) value, kIOCFSerializeToBinary);
 	if (!data)
@@ -352,6 +365,8 @@ static kern_return_t serializeOutOfLine(id value, io_buf_ptr_t *properties, mach
 	{
 		memcpy(*properties, CFDataGetBytePtr(data), size);
 		*propertiesCnt = size;
+		lastReply = (vm_address_t) *properties;
+		lastReplySize = size;
 	}
 	else
 		*properties = nullptr;
