@@ -16,7 +16,8 @@ here = os.path.dirname(os.path.abspath(__file__))
 src = sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "..", "src")
 
 ROUTINES = ["is_io_registry_entry_from_path", "is_io_registry_entry_from_path_ool",
-            "is_io_registry_entry_get_path_ool", "is_io_registry_entry_in_plane"]
+            "is_io_registry_entry_get_path", "is_io_registry_entry_get_path_ool",
+            "is_io_registry_entry_in_plane"]
 METHODS = ["IORegistryEntry::IORegistryEntry", "IORegistryEntry::~IORegistryEntry",
            "IORegistryEntry::getParents", "IORegistryEntry::getChildren",
            "IORegistryEntry::registerInPlane", "IORegistryEntry::getPath",
@@ -118,6 +119,7 @@ extern "C" {
 kern_return_t is_io_registry_entry_from_path(mach_port_t, io_string_t, mach_port_t*);
 kern_return_t is_io_registry_entry_from_path_ool(mach_port_t, io_string_inband_t, io_buf_ptr_t,
     mach_msg_type_number_t, kern_return_t*, mach_port_t*);
+kern_return_t is_io_registry_entry_get_path(mach_port_t, io_name_t, io_string_t);
 kern_return_t is_io_registry_entry_get_path_ool(mach_port_t, io_name_t, io_string_inband_t,
     io_buf_ptr_t*, mach_msg_type_number_t*);
 kern_return_t is_io_registry_entry_in_plane(mach_port_t, io_name_t, boolean_t*);
@@ -185,6 +187,38 @@ int main()
 	kr = is_io_registry_entry_get_path_ool(output.port(), service, path, &pathOol, &pathOolCnt);
 	CHECK(kr == KERN_SUCCESS && !strcmp(path, "IOService:/X11Display/DP-1") && !pathOol && !pathOolCnt,
 	      "get_path_ool: kr=%#x path='%s' ool=%p cnt=%u", kr, kr ? "" : path, (void*) pathOol, pathOolCnt);
+
+	// IORegistryEntryGetPath on the root, and on an entry outside the plane
+	static io_string_t fullPath;
+	kr = is_io_registry_entry_get_path(IORegistryEntry::root()->port(), service, fullPath);
+	CHECK(kr == KERN_SUCCESS && !strcmp(fullPath, "IOService:/"),
+	      "get_path(root): kr=%#x path='%s', want 0 'IOService:/'", kr, kr ? "" : fullPath);
+	kr = is_io_registry_entry_get_path(output.port(), deviceTree, fullPath);
+	CHECK(kr == kIOReturnBadArgument, "get_path(DP-1, IODeviceTree): kr=%#x, want %#x", kr, kIOReturnBadArgument);
+	kr = is_io_registry_entry_get_path_ool(output.port(), deviceTree, path, &pathOol, &pathOolCnt);
+	CHECK(kr == kIOReturnBadArgument, "get_path_ool(DP-1, IODeviceTree): kr=%#x, want %#x", kr, kIOReturnBadArgument);
+
+	// A plane stays acyclic
+	CHECK(!display.registerInPlane(kIOServicePlane, "X11Display", &output),
+	      "registerInPlane accepted an entry below its own child");
+	CHECK(!display.registerInPlane(kIOServicePlane, "X11Display", &display),
+	      "registerInPlane accepted an entry below itself");
+	CHECK(display.getParents(kIOServicePlane).size() == 1, "a refused registerInPlane changed the parents");
+
+	// Destroying an entry unlinks it from its parents and children
+	{
+		IORegistryEntry* hub = new IORegistryEntry;
+		IORegistryEntry leaf;
+		hub->registerInPlane(kIOServicePlane, "Hub", IORegistryEntry::root());
+		leaf.registerInPlane(kIOServicePlane, "Leaf", hub);
+		mach_port_t leafPort = leaf.port();
+		delete hub;
+		CHECK(IORegistryEntry::root()->getChildren(kIOServicePlane).size() == 2,
+		      "the root still lists a destroyed child");
+		CHECK(leaf.getParents(kIOServicePlane).empty(), "an entry still lists a destroyed parent");
+		kr = is_io_registry_entry_get_path(leafPort, service, fullPath);
+		CHECK(kr == kIOReturnBadArgument, "get_path below a destroyed parent: kr=%#x, want %#x", kr, kIOReturnBadArgument);
+	}
 
 	free(ool);
 	printf("%s: %d checks, %d failed\n", failures ? "FAIL" : "PASS", checks, failures);

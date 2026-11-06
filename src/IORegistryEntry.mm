@@ -28,8 +28,24 @@ IORegistryEntry::IORegistryEntry()
 
 IORegistryEntry::~IORegistryEntry()
 {
-	std::unique_lock l(m_entriesByIdMutex);
-	m_entriesById.erase(m_id);
+	{
+		std::unique_lock l(m_entriesByIdMutex);
+		m_entriesById.erase(m_id);
+	}
+
+	// Unlink this entry in both directions, so that walking a plane later
+	// never reaches a deleted entry. Registry requests and object teardown
+	// all run on the main queue.
+	for (auto& [plane, parents] : m_parents)
+	{
+		for (IORegistryEntry* parent : parents)
+			parent->m_children[plane].erase(this);
+	}
+	for (auto& [plane, children] : m_children)
+	{
+		for (IORegistryEntry* child : children)
+			child->m_parents[plane].erase(this);
+	}
 }
 
 IORegistryEntry* IORegistryEntry::findById(uint64_t id)
@@ -78,25 +94,35 @@ std::set<IORegistryEntry*> IORegistryEntry::getChildren(const char* plane)
 	return std::set<IORegistryEntry*>();
 }
 
-void IORegistryEntry::registerInPlane(const char* plane, const char* pathName, IORegistryEntry* parent)
+bool IORegistryEntry::registerInPlane(const char* plane, const char* pathName, IORegistryEntry* parent)
 {
+	// Refuse to attach the entry below itself or below one of its own
+	// descendants: a plane must stay acyclic.
+	std::set<IORegistryEntry*> visited;
+	std::vector<IORegistryEntry*> pending { parent };
+
+	while (!pending.empty())
+	{
+		IORegistryEntry* cur = pending.back();
+		pending.pop_back();
+
+		if (cur == this)
+			return false;
+		if (!visited.insert(cur).second)
+			continue;
+
+		for (IORegistryEntry* p : cur->getParents(plane))
+			pending.push_back(p);
+	}
+
 	m_name[plane] = pathName;
+	m_parents[plane].insert(parent);
+	parent->m_children[plane].insert(this);
 
-	auto it = m_parents.find(plane);
-
-	if (it == m_parents.end())
-		it = m_parents.insert(std::make_pair(std::string_view(plane), std::set<IORegistryEntry*>())).first;
-	
-	it->second.insert(parent);
-	
-	it = parent->m_children.find(plane);
-	if (it == parent->m_children.end())
-		it = parent->m_children.insert(std::make_pair(std::string_view(plane), std::set<IORegistryEntry*>())).first;
-
-	it->second.insert(this);
+	return true;
 }
 
-std::string IORegistryEntry::getPath(const char* plane)
+std::optional<std::string> IORegistryEntry::getPath(const char* plane)
 {
 	std::stack<std::string> components;
 	IORegistryEntry* cur = this;
@@ -107,7 +133,7 @@ std::string IORegistryEntry::getPath(const char* plane)
 		if (parents.empty())
 		{
 			if (cur != root())
-				return "?unsup_plane?";
+				return std::nullopt;
 
 			break;
 		}
@@ -120,6 +146,10 @@ std::string IORegistryEntry::getPath(const char* plane)
 
 	std::string path = plane;
 	path += ":";
+
+	// The root itself is "plane:/"
+	if (components.empty())
+		path += "/";
 
 	while (!components.empty())
 	{
@@ -171,8 +201,13 @@ kern_return_t is_io_registry_entry_get_path
 	if (!e)
 		return kIOReturnBadArgument;
 
-	std::string mypath = e->getPath(plane);
-	strlcpy(path, mypath.c_str(), sizeof(io_string_t));
+	std::optional<std::string> mypath = e->getPath(plane);
+	if (!mypath)
+		return kIOReturnBadArgument;
+	if (mypath->size() >= sizeof(io_string_t))
+		return kIOReturnNoSpace;
+
+	strlcpy(path, mypath->c_str(), sizeof(io_string_t));
 
 	return kIOReturnSuccess;
 }
@@ -504,11 +539,13 @@ kern_return_t is_io_registry_entry_get_path_ool
 
 	// Registry paths here are a few components deep, so the inband buffer
 	// always suffices; an out-of-line reply is not implemented.
-	std::string mypath = e->getPath(plane);
-	if (mypath.size() >= sizeof(io_string_inband_t))
+	std::optional<std::string> mypath = e->getPath(plane);
+	if (!mypath)
+		return kIOReturnBadArgument;
+	if (mypath->size() >= sizeof(io_string_inband_t))
 		return kIOReturnNoSpace;
 
-	strlcpy(path, mypath.c_str(), sizeof(io_string_inband_t));
+	strlcpy(path, mypath->c_str(), sizeof(io_string_inband_t));
 
 	return kIOReturnSuccess;
 }
