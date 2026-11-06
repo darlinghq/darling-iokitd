@@ -26,7 +26,7 @@
 #define asldebug(...) os_log_debug(OS_LOG_DEFAULT, __VA_ARGS__)
 
 void throwCFStringException(CFStringRef format, ...);
-extern mach_port_t g_masterPort, g_deathPort;
+extern mach_port_t g_masterPort;
 
 // iokitd calls only - not valid for powerd!
 extern pid_t g_iokitCurrentCallerPID;

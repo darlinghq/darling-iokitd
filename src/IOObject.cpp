@@ -50,12 +50,17 @@ IOObject::IOObject()
 		throw std::runtime_error("Failed to create dispatch source");
 
 	dispatch_source_set_event_handler(m_dispatchSource, ^{
-		dispatch_mig_server(m_dispatchSource, is_iokit_subsystem.maxsize, iokit_server);
+		dispatch_mig_server(m_dispatchSource, is_iokit_subsystem.maxsize,
+			[](mach_msg_header_t* request, mach_msg_header_t* reply) -> boolean_t {
+				if (request->msgh_id == MACH_NOTIFY_NO_SENDERS)
+					return IOObject::deathNotify(request, reply);
+				return iokit_server(request, reply);
+			});
 	});
 	dispatch_resume(m_dispatchSource);
 
 	mach_port_t	oldTargetOfNotification	= MACH_PORT_NULL;
-	kr = mach_port_request_notification(task, m_port, MACH_NOTIFY_NO_SENDERS, 1, g_deathPort, MACH_MSG_TYPE_MAKE_SEND_ONCE, &oldTargetOfNotification);
+	kr = mach_port_request_notification(task, m_port, MACH_NOTIFY_NO_SENDERS, 1, m_port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &oldTargetOfNotification);
 	if (kr != KERN_SUCCESS)
 		throw std::runtime_error("Failed to setup MACH_NOTIFY_NO_SENDERS");
 
@@ -64,12 +69,15 @@ IOObject::IOObject()
 
 IOObject::~IOObject()
 {
-	if (m_dispatchSource)
-		dispatch_release(m_dispatchSource);
-
 	m_objects.erase(m_port);
-
-	mach_port_deallocate(mach_task_self(), m_port);
+	// A receive source must be cancelled before its receive right is destroyed.
+	// The cancellation handler captures the port value, never the dying object.
+	mach_port_t port = m_port;
+	dispatch_source_set_cancel_handler(m_dispatchSource, ^{
+		mach_port_destroy(mach_task_self(), port);
+	});
+	dispatch_source_cancel(m_dispatchSource);
+	dispatch_release(m_dispatchSource);
 }
 
 void IOObject::retain()
@@ -113,12 +121,30 @@ boolean_t IOObject::deathNotify(mach_msg_header_t *request, mach_msg_header_t *r
 
 	if (Request->not_header.msgh_id == MACH_NOTIFY_NO_SENDERS)
 	{
-		IOObject* object = lookup(request->msgh_remote_port);
-
-		if (object != nullptr)
+		// No-senders messages carry no object name in their body. They are
+		// delivered to the object's own receive right, identified by local_port.
+		mach_port_t port = request->msgh_local_port;
+		dispatch_async(dispatch_get_main_queue(), ^{
+			IOObject* object = lookup(port);
+			if (!object)
+				return;
+			mach_port_status_t status;
+			mach_msg_type_number_t count = MACH_PORT_RECEIVE_STATUS_COUNT;
+			if (mach_port_get_attributes(mach_task_self(), port, MACH_PORT_RECEIVE_STATUS,
+				(mach_port_info_t) &status, &count) != KERN_SUCCESS)
+				return;
+			if (status.mps_srights)
+			{
+				// A new send right was made after this notification was queued.
+				mach_port_t old = MACH_PORT_NULL;
+				mach_port_request_notification(mach_task_self(), port, MACH_NOTIFY_NO_SENDERS,
+					status.mps_mscount, port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &old);
+				if (MACH_PORT_VALID(old))
+					mach_port_deallocate(mach_task_self(), old);
+				return;
+			}
 			delete object;
-		else
-			os_log_error(OS_LOG_DEFAULT, "Received MACH_NOTIFY_NO_SENDERS for port %d, which matches no objects", request->msgh_remote_port);
+		});
 
 		Reply->Head.msgh_bits = 0;
 		Reply->Head.msgh_remote_port = MACH_PORT_NULL;
