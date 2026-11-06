@@ -334,6 +334,32 @@ kern_return_t is_io_registry_entry_get_name_in_plane
 	return kIOReturnSuccess;
 }
 
+// Replies with the binary serialization of 'value' in freshly allocated
+// memory, which MIG hands over to the caller.
+static kern_return_t serializeOutOfLine(id value, io_buf_ptr_t *properties, mach_msg_type_number_t *propertiesCnt)
+{
+	*properties = nullptr;
+	*propertiesCnt = 0;
+
+	CFDataRef data = IOCFSerialize((CFTypeRef) value, kIOCFSerializeToBinary);
+	if (!data)
+		return kIOReturnNoMemory;
+
+	mach_msg_type_number_t size = CFDataGetLength(data);
+	kern_return_t kr = vm_allocate(mach_task_self(), (vm_address_t*) properties, size, true);
+
+	if (kr == KERN_SUCCESS)
+	{
+		memcpy(*properties, CFDataGetBytePtr(data), size);
+		*propertiesCnt = size;
+	}
+	else
+		*properties = nullptr;
+
+	CFRelease(data);
+	return kr;
+}
+
 kern_return_t is_io_registry_entry_get_properties_bin
 (
 	mach_port_t registry_entry,
@@ -341,23 +367,14 @@ kern_return_t is_io_registry_entry_get_properties_bin
 	mach_msg_type_number_t *propertiesCnt
 )
 {
+	*properties = nullptr;
+	*propertiesCnt = 0;
+
 	IORegistryEntry* e = dynamic_cast<IORegistryEntry*>(IOObject::lookup(registry_entry));
 	if (!e)
 		return kIOReturnBadArgument;
 
-	NSDictionary* props = e->getProperties();
-
-	CFDataRef data = IOCFSerialize(props, kIOCFSerializeToBinary);
-
-	*propertiesCnt = CFDataGetLength(data);
-	kern_return_t kr = vm_allocate(mach_task_self(), (vm_address_t*) properties, *propertiesCnt, true);
-
-	if (kr == kIOReturnSuccess)
-		memcpy(*properties, CFDataGetBytePtr(data), *propertiesCnt);
-
-	CFRelease(data);
-
-    return kr;
+	return serializeOutOfLine(e->getProperties(), properties, propertiesCnt);
 }
 
 kern_return_t is_io_registry_entry_get_properties
@@ -565,20 +582,20 @@ kern_return_t is_io_registry_entry_in_plane
 	return kIOReturnSuccess;
 }
 
-static NSDictionary* findKey(IORegistryEntry* e, const char* plane, NSString* key)
+// Finds 'key' on the entry or, with kIORegistryIterateRecursively, on the
+// first entry below it in 'plane' that has it.
+static id findProperty(IORegistryEntry* e, const char* plane, NSString* key, bool recursively)
 {
-	NSDictionary* props = e->getProperties();
-	id value = [props objectForKey: key];
+	id value = [e->getProperties() objectForKey: key];
 
-	if (value != nil)
-		return @{ key: value };
-	
-	auto set = e->getChildren(plane);
-	for (IORegistryEntry* c : set)
+	if (value != nil || !recursively)
+		return value;
+
+	for (IORegistryEntry* c : e->getChildren(plane))
 	{
-		NSDictionary* rv = findKey(c, plane, key);
-		if (rv != nil)
-			return rv;
+		value = findProperty(c, plane, key, true);
+		if (value != nil)
+			return value;
 	}
 
 	return nil;
@@ -594,52 +611,29 @@ kern_return_t is_io_registry_entry_get_property_bin
 	mach_msg_type_number_t *propertiesCnt
 )
 {
+	*propertiesCnt = 0;
+	*properties = nullptr;
+
 	IORegistryEntry* e = dynamic_cast<IORegistryEntry*>(IOObject::lookup(registry_entry));
 	if (!e)
 		return kIOReturnBadArgument;
 
 	// TODO: compare property_name against kIORegistryEntryPropertyKeysKey, but IOKitUser doesn't seem to use it
 
-	*propertiesCnt = 0;
-	*properties = nullptr;
-
-	NSDictionary* retval;
-
 	NSString* propName = [NSString stringWithUTF8String: property_name];
+	if (!propName)
+		return kIOReturnBadArgument;
 
-	if ((options & kIORegistryIterateRecursively) && plane[0])
-	{
-		// Recursive search for the property
-		auto set = e->getChildren(plane);
-		retval = findKey(e, plane, propName);
+	bool recursively = (options & kIORegistryIterateRecursively) && plane[0];
+	id value = findProperty(e, plane, propName, recursively);
 
-		if (!retval)
-			return kIOReturnError; // TODO: or another code?
-	}
-	else
-	{
-		NSDictionary* props = e->getProperties();
-		
-		id value = [props objectForKey: propName];
+	if (!value)
+		return kIOReturnNotFound;
 
-		if (!value)
-			return kIOReturnError; // TODO: or another code?
-
-		retval = @{ propName: value };
-	}
-
-	CFDataRef data = IOCFSerialize(retval, kIOCFSerializeToBinary);
-	*propertiesCnt = CFDataGetLength(data);
-	kern_return_t kr = vm_allocate(mach_task_self(), (vm_address_t*) properties, *propertiesCnt, true);
-
-	if (kr == kIOReturnSuccess)
-		memcpy(*properties, CFDataGetBytePtr(data), *propertiesCnt);
-
-	CFRelease(data);
-
-    return kr;
+	// The reply is the value itself, which IORegistryEntryCreateCFProperty()
+	// returns as is.
+	return serializeOutOfLine(value, properties, propertiesCnt);
 }
-
 
 kern_return_t is_io_registry_entry_get_property_bytes
 (
