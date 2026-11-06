@@ -36,6 +36,7 @@ set(iokitd_sources
 	src/IODisplayConnect.mm
 	src/IODisplayConnectX11.mm
 	src/PowerAssertions.mm
+	src/PowerSources.mm
 	src/PowerAssertionsX11.mm
 	src/IOSurfaceRoot.mm
 	src/IOSurface.mm
