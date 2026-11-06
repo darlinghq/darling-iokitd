@@ -24,6 +24,8 @@
 #include <IOKit/IOReturn.h>
 #include <os/log.h>
 #include <stdexcept>
+#include <cstring>
+#include <vector>
 #include "IOIterator.h"
 
 extern "C" {
@@ -148,6 +150,48 @@ kern_return_t is_io_service_get_matching_service_bin
 		return kIOReturnNotFound;
 
 	*service = match->port();
+	return kIOReturnSuccess;
+}
+
+kern_return_t is_io_service_add_notification_bin_64
+(
+	mach_port_t master_port,
+	io_name_t notification_type,
+	io_struct_inband_t matching,
+	mach_msg_type_number_t matchingCnt,
+	mach_port_t wake_port,
+	io_async_ref64_t reference,
+	mach_msg_type_number_t referenceCnt,
+	mach_port_t *notification
+)
+{
+	*notification = MACH_PORT_NULL;
+
+	NSDictionary* criteria = unserializeMatching(matching, matchingCnt);
+	if (!criteria)
+		return kIOReturnBadArgument;
+
+	// Services are only registered while iokitd starts, so none is ever
+	// published or terminated later. The notification is an iterator over
+	// the services that match now, which is what the client walks to arm a
+	// publish or match notification; termination notifications start empty.
+	IOIterator* iterator;
+	if (!strcmp(notification_type, kIOPublishNotification) ||
+		!strcmp(notification_type, kIOFirstPublishNotification) ||
+		!strcmp(notification_type, kIOMatchedNotification) ||
+		!strcmp(notification_type, kIOFirstMatchNotification))
+		iterator = ServiceRegistry::instance()->iteratorForMatchingServices(criteria);
+	else
+		iterator = new IOIterator(std::vector<IOObject*>());
+	CFRelease(criteria);
+
+	// Nothing is ever sent to the wake port
+	if (MACH_PORT_VALID(wake_port))
+		mach_port_deallocate(mach_task_self(), wake_port);
+
+	*notification = iterator->port();
+	iterator->releaseLater();
+
 	return kIOReturnSuccess;
 }
 

@@ -40,6 +40,7 @@ set(iokitd_sources
 	src/IOSurfaceRoot.mm
 	src/IOSurface.mm
 	src/IOUserClient.mm
+	src/IOInterestNotification.mm
 	src/IOUserClientApple.mm
 	${CMAKE_CURRENT_BINARY_DIR}/iokitmigServer.c
 	${CMAKE_CURRENT_BINARY_DIR}/powermanagementServer.c

@@ -19,6 +19,8 @@
 
 #include "IOService.h"
 #include "IOUserClient.h"
+#include "IOInterestNotification.h"
+#include <algorithm>
 #import <Foundation/NSArray.h>
 #import <Foundation/NSString.h>
 
@@ -87,6 +89,37 @@ IOReturn IOService::newUserClient(uint32_t type, IOUserClient** client)
 {
 	*client = nullptr;
 	return kIOReturnUnsupported;
+}
+
+bool IOService::acceptsInterest(const char* type)
+{
+	return false;
+}
+
+void IOService::addInterest(IOInterestNotification* notification)
+{
+	m_interests.push_back(notification);
+}
+
+void IOService::removeInterest(IOInterestNotification* notification)
+{
+	auto it = std::find(m_interests.begin(), m_interests.end(), notification);
+	if (it == m_interests.end())
+		return;
+
+	m_interests.erase(it);
+	interestRemoved(notification);
+}
+
+std::vector<IOInterestNotification*> IOService::interests(const char* type) const
+{
+	std::vector<IOInterestNotification*> result;
+	for (IOInterestNotification* notification : m_interests)
+	{
+		if (notification->interestType() == type)
+			result.push_back(notification);
+	}
+	return result;
 }
 
 kern_return_t is_io_service_open_extended
