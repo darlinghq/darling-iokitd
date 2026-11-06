@@ -28,7 +28,8 @@
 class IOUserClient : public IOService
 {
 public:
-	IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments *arguments);
+	// The default dispatches through getExternalMethodForIndex()
+	virtual IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments *arguments);
 	IOExternalMethod *getTargetAndMethodForIndex(IOService **targetP, UInt32 index);
 	virtual IOExternalMethod *getExternalMethodForIndex(UInt32 index) = 0;
 };

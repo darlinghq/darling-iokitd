@@ -33,15 +33,6 @@ kern_return_t is_io_registry_iterator_exit_entry
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_service_close
-(
-	mach_port_t connection
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
 kern_return_t is_io_connect_get_service
 (
 	mach_port_t connection,
@@ -416,22 +407,6 @@ kern_return_t is_io_object_get_bundle_identifier
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_service_open_extended
-(
-	mach_port_t service,
-	task_t owningTask,
-	uint32_t connect_type,
-	NDR_record_t ndr,
-	io_buf_ptr_t properties,
-	mach_msg_type_number_t propertiesCnt,
-	kern_return_t *result,
-	mach_port_t *connection
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
 kern_return_t is_io_connect_map_memory_into_task
 (
 	mach_port_t connection,
@@ -618,18 +593,6 @@ kern_return_t is_io_server_version
     return KERN_NOT_SUPPORTED;
 }
 
-
-kern_return_t is_io_service_get_matching_service_bin
-(
-	mach_port_t master_port,
-	io_struct_inband_t matching,
-	mach_msg_type_number_t matchingCnt,
-	mach_port_t *service
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
 
 kern_return_t is_io_service_match_property_table_bin
 (

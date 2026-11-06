@@ -32,6 +32,7 @@ public:
 	static ServiceRegistry* instance();
 	void registerService(IOService* service);
 	IOIterator* iteratorForMatchingServices(NSDictionary* criteria) const;
+	IOService* firstMatchingService(NSDictionary* criteria) const;
 private:
 	std::list<IOService*> m_registeredServices;
 };
