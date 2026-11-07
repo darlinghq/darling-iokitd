@@ -24,6 +24,8 @@
 #include <IOKit/IOKitLib.h>
 #include <IOKit/IOKitLibPrivate.h>
 
+class IOUserClient;
+
 class IOService : public IORegistryEntry
 {
 public:
@@ -31,6 +33,10 @@ public:
 	virtual NSDictionary* matchingDictionary() = 0;
 	bool matches(NSDictionary* dict);
 	bool conformsTo(const char* className) override;
+
+	// IOServiceOpen(). On success, *client holds the reference that is
+	// handed over to the caller.
+	virtual IOReturn newUserClient(uint32_t type, IOUserClient** client);
 
 	uint32_t busyState() const { return m_busyState; }
 	uint64_t accumulatedBusyTime() const { return m_accumulatedBusyTime; }

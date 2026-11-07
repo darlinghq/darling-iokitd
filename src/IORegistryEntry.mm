@@ -13,6 +13,7 @@ extern "C" {
 
 #import <Foundation/NSString.h>
 #import <Foundation/NSDictionary.h>
+#include <CoreFoundation/CFNumber.h>
 
 uint64_t IORegistryEntry::m_nextId = 0x100000000;
 std::unordered_map<uint64_t, IORegistryEntry*> IORegistryEntry::m_entriesById;
@@ -27,8 +28,24 @@ IORegistryEntry::IORegistryEntry()
 
 IORegistryEntry::~IORegistryEntry()
 {
-	std::unique_lock l(m_entriesByIdMutex);
-	m_entriesById.erase(m_id);
+	{
+		std::unique_lock l(m_entriesByIdMutex);
+		m_entriesById.erase(m_id);
+	}
+
+	// Unlink this entry in both directions, so that walking a plane later
+	// never reaches a deleted entry. Registry requests and object teardown
+	// all run on the main queue.
+	for (auto& [plane, parents] : m_parents)
+	{
+		for (IORegistryEntry* parent : parents)
+			parent->m_children[plane].erase(this);
+	}
+	for (auto& [plane, children] : m_children)
+	{
+		for (IORegistryEntry* child : children)
+			child->m_parents[plane].erase(this);
+	}
 }
 
 IORegistryEntry* IORegistryEntry::findById(uint64_t id)
@@ -77,25 +94,35 @@ std::set<IORegistryEntry*> IORegistryEntry::getChildren(const char* plane)
 	return std::set<IORegistryEntry*>();
 }
 
-void IORegistryEntry::registerInPlane(const char* plane, const char* pathName, IORegistryEntry* parent)
+bool IORegistryEntry::registerInPlane(const char* plane, const char* pathName, IORegistryEntry* parent)
 {
+	// Refuse to attach the entry below itself or below one of its own
+	// descendants: a plane must stay acyclic.
+	std::set<IORegistryEntry*> visited;
+	std::vector<IORegistryEntry*> pending { parent };
+
+	while (!pending.empty())
+	{
+		IORegistryEntry* cur = pending.back();
+		pending.pop_back();
+
+		if (cur == this)
+			return false;
+		if (!visited.insert(cur).second)
+			continue;
+
+		for (IORegistryEntry* p : cur->getParents(plane))
+			pending.push_back(p);
+	}
+
 	m_name[plane] = pathName;
+	m_parents[plane].insert(parent);
+	parent->m_children[plane].insert(this);
 
-	auto it = m_parents.find(plane);
-
-	if (it == m_parents.end())
-		it = m_parents.insert(std::make_pair(std::string_view(plane), std::set<IORegistryEntry*>())).first;
-	
-	it->second.insert(parent);
-	
-	it = parent->m_children.find(plane);
-	if (it == parent->m_children.end())
-		it = parent->m_children.insert(std::make_pair(std::string_view(plane), std::set<IORegistryEntry*>())).first;
-
-	it->second.insert(this);
+	return true;
 }
 
-std::string IORegistryEntry::getPath(const char* plane)
+std::optional<std::string> IORegistryEntry::getPath(const char* plane)
 {
 	std::stack<std::string> components;
 	IORegistryEntry* cur = this;
@@ -106,7 +133,7 @@ std::string IORegistryEntry::getPath(const char* plane)
 		if (parents.empty())
 		{
 			if (cur != root())
-				return "?unsup_plane?";
+				return std::nullopt;
 
 			break;
 		}
@@ -119,6 +146,10 @@ std::string IORegistryEntry::getPath(const char* plane)
 
 	std::string path = plane;
 	path += ":";
+
+	// The root itself is "plane:/"
+	if (components.empty())
+		path += "/";
 
 	while (!components.empty())
 	{
@@ -170,8 +201,13 @@ kern_return_t is_io_registry_entry_get_path
 	if (!e)
 		return kIOReturnBadArgument;
 
-	std::string mypath = e->getPath(plane);
-	strlcpy(path, mypath.c_str(), sizeof(io_string_t));
+	std::optional<std::string> mypath = e->getPath(plane);
+	if (!mypath)
+		return kIOReturnBadArgument;
+	if (mypath->size() >= sizeof(io_string_t))
+		return kIOReturnNoSpace;
+
+	strlcpy(path, mypath->c_str(), sizeof(io_string_t));
 
 	return kIOReturnSuccess;
 }
@@ -298,6 +334,47 @@ kern_return_t is_io_registry_entry_get_name_in_plane
 	return kIOReturnSuccess;
 }
 
+// Replies with the binary serialization of 'value' out of line.
+//
+// device.defs declares these replies "physicalcopy" without "dealloc", so
+// sending the reply copies the buffer and leaves it with us. Requests are
+// served one at a time on the main queue and each reply is sent before the
+// next request runs, so the previous reply's buffer can be released here.
+static kern_return_t serializeOutOfLine(id value, io_buf_ptr_t *properties, mach_msg_type_number_t *propertiesCnt)
+{
+	static vm_address_t lastReply;
+	static vm_size_t lastReplySize;
+
+	*properties = nullptr;
+	*propertiesCnt = 0;
+
+	if (lastReply)
+	{
+		vm_deallocate(mach_task_self(), lastReply, lastReplySize);
+		lastReply = 0;
+	}
+
+	CFDataRef data = IOCFSerialize((CFTypeRef) value, kIOCFSerializeToBinary);
+	if (!data)
+		return kIOReturnNoMemory;
+
+	mach_msg_type_number_t size = CFDataGetLength(data);
+	kern_return_t kr = vm_allocate(mach_task_self(), (vm_address_t*) properties, size, true);
+
+	if (kr == KERN_SUCCESS)
+	{
+		memcpy(*properties, CFDataGetBytePtr(data), size);
+		*propertiesCnt = size;
+		lastReply = (vm_address_t) *properties;
+		lastReplySize = size;
+	}
+	else
+		*properties = nullptr;
+
+	CFRelease(data);
+	return kr;
+}
+
 kern_return_t is_io_registry_entry_get_properties_bin
 (
 	mach_port_t registry_entry,
@@ -305,23 +382,29 @@ kern_return_t is_io_registry_entry_get_properties_bin
 	mach_msg_type_number_t *propertiesCnt
 )
 {
+	*properties = nullptr;
+	*propertiesCnt = 0;
+
 	IORegistryEntry* e = dynamic_cast<IORegistryEntry*>(IOObject::lookup(registry_entry));
 	if (!e)
 		return kIOReturnBadArgument;
 
-	NSDictionary* props = e->getProperties();
+	return serializeOutOfLine(e->getProperties(), properties, propertiesCnt);
+}
 
-	CFDataRef data = IOCFSerialize(props, kIOCFSerializeToBinary);
-
-	*propertiesCnt = CFDataGetLength(data);
-	kern_return_t kr = vm_allocate(mach_task_self(), (vm_address_t*) properties, *propertiesCnt, true);
-
-	if (kr == kIOReturnSuccess)
-		memcpy(*properties, CFDataGetBytePtr(data), *propertiesCnt);
-
-	CFRelease(data);
-
-    return kr;
+kern_return_t is_io_registry_entry_get_properties_bin_buf
+(
+	mach_port_t registry_entry,
+	mach_vm_address_t buf,
+	mach_vm_size_t *bufsize,
+	io_buf_ptr_t *properties,
+	mach_msg_type_number_t *propertiesCnt
+)
+{
+	// 'buf' lives in the caller's address space. The caller reads the reply
+	// from there only when no out-of-line data comes back, so always
+	// answer out of line.
+	return is_io_registry_entry_get_properties_bin(registry_entry, properties, propertiesCnt);
 }
 
 kern_return_t is_io_registry_entry_get_properties
@@ -386,15 +469,8 @@ kern_return_t is_io_registry_entry_get_location_in_plane
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_registry_entry_from_path
-(
-	mach_port_t master_port,
-	io_string_t path,
-	mach_port_t *registry_entry
-)
+static IOReturn lookupPath(const char* path, IORegistryEntry** entry)
 {
-	*registry_entry = 0;
-
 	std::vector<std::string> components;
     std::istringstream iss(path);
 
@@ -433,25 +509,123 @@ kern_return_t is_io_registry_entry_from_path
 		current = next;
 	}
 
-	*registry_entry = current->port();
+	*entry = current;
 
 	return kIOReturnSuccess;
 }
 
-static NSDictionary* findKey(IORegistryEntry* e, const char* plane, NSString* key)
+kern_return_t is_io_registry_entry_from_path
+(
+	mach_port_t master_port,
+	io_string_t path,
+	mach_port_t *registry_entry
+)
 {
-	NSDictionary* props = e->getProperties();
-	id value = [props objectForKey: key];
+	*registry_entry = 0;
 
-	if (value != nil)
-		return @{ key: value };
-	
-	auto set = e->getChildren(plane);
-	for (IORegistryEntry* c : set)
+	IORegistryEntry* entry;
+	IOReturn ret = lookupPath(path, &entry);
+	if (ret != kIOReturnSuccess)
+		return ret;
+
+	*registry_entry = entry->port();
+
+	return kIOReturnSuccess;
+}
+
+kern_return_t is_io_registry_entry_from_path_ool
+(
+	mach_port_t master_port,
+	io_string_inband_t path,
+	io_buf_ptr_t path_ool,
+	mach_msg_type_number_t path_oolCnt,
+	kern_return_t *result,
+	mach_port_t *registry_entry
+)
+{
+	*registry_entry = MACH_PORT_NULL;
+
+	// IOKitUser sends paths longer than io_string_inband_t out of line, with
+	// the terminating NUL, and leaves the inband path empty.
+	const char* cpath = nullptr;
+	if (path[0])
 	{
-		NSDictionary* rv = findKey(c, plane, key);
-		if (rv != nil)
-			return rv;
+		if (memchr(path, 0, sizeof(io_string_inband_t)))
+			cpath = path;
+	}
+	else if (path_ool && path_oolCnt && !path_ool[path_oolCnt - 1])
+		cpath = path_ool;
+
+	IORegistryEntry* entry;
+	*result = cpath ? lookupPath(cpath, &entry) : kIOReturnBadArgument;
+	if (*result == kIOReturnSuccess)
+		*registry_entry = entry->port();
+
+	// The out-of-line buffer was mapped into this task for this request.
+	if (path_ool)
+		vm_deallocate(mach_task_self(), (vm_address_t) path_ool, path_oolCnt);
+
+	return KERN_SUCCESS;
+}
+
+kern_return_t is_io_registry_entry_get_path_ool
+(
+	mach_port_t registry_entry,
+	io_name_t plane,
+	io_string_inband_t path,
+	io_buf_ptr_t *path_ool,
+	mach_msg_type_number_t *path_oolCnt
+)
+{
+	*path_ool = nullptr;
+	*path_oolCnt = 0;
+
+	IORegistryEntry* e = dynamic_cast<IORegistryEntry*>(IOObject::lookup(registry_entry));
+	if (!e)
+		return kIOReturnBadArgument;
+
+	// Registry paths here are a few components deep, so the inband buffer
+	// always suffices; an out-of-line reply is not implemented.
+	std::optional<std::string> mypath = e->getPath(plane);
+	if (!mypath)
+		return kIOReturnBadArgument;
+	if (mypath->size() >= sizeof(io_string_inband_t))
+		return kIOReturnNoSpace;
+
+	strlcpy(path, mypath->c_str(), sizeof(io_string_inband_t));
+
+	return kIOReturnSuccess;
+}
+
+kern_return_t is_io_registry_entry_in_plane
+(
+	mach_port_t registry_entry,
+	io_name_t plane,
+	boolean_t *inPlane
+)
+{
+	IORegistryEntry* e = dynamic_cast<IORegistryEntry*>(IOObject::lookup(registry_entry));
+	if (!e)
+		return kIOReturnBadArgument;
+
+	*inPlane = !e->getParents(plane).empty();
+	return kIOReturnSuccess;
+}
+
+// Finds 'key' on the entry or, with kIORegistryIterateRecursively, on the
+// first entry below it in 'plane' that has it.
+static id findProperty(IORegistryEntry* e, const char* plane, NSString* key, bool recursively)
+{
+	id value = [e->getProperties() objectForKey: key];
+
+	if (value != nil || !recursively)
+		return value;
+
+	for (IORegistryEntry* c : e->getChildren(plane))
+	{
+		value = findProperty(c, plane, key, true);
+		if (value != nil)
+			return value;
 	}
 
 	return nil;
@@ -467,49 +641,106 @@ kern_return_t is_io_registry_entry_get_property_bin
 	mach_msg_type_number_t *propertiesCnt
 )
 {
+	*propertiesCnt = 0;
+	*properties = nullptr;
+
 	IORegistryEntry* e = dynamic_cast<IORegistryEntry*>(IOObject::lookup(registry_entry));
 	if (!e)
 		return kIOReturnBadArgument;
 
 	// TODO: compare property_name against kIORegistryEntryPropertyKeysKey, but IOKitUser doesn't seem to use it
 
-	*propertiesCnt = 0;
-	*properties = nullptr;
-
-	NSDictionary* retval;
-
 	NSString* propName = [NSString stringWithUTF8String: property_name];
+	if (!propName)
+		return kIOReturnBadArgument;
 
-	if ((options & kIORegistryIterateRecursively) && plane[0])
-	{
-		// Recursive search for the property
-		auto set = e->getChildren(plane);
-		retval = findKey(e, plane, propName);
+	bool recursively = (options & kIORegistryIterateRecursively) && plane[0];
+	id value = findProperty(e, plane, propName, recursively);
 
-		if (!retval)
-			return kIOReturnError; // TODO: or another code?
-	}
-	else
-	{
-		NSDictionary* props = e->getProperties();
-		
-		id value = [props objectForKey: propName];
+	if (!value)
+		return kIOReturnNotFound;
 
-		if (!value)
-			return kIOReturnError; // TODO: or another code?
-
-		retval = @{ propName: value };
-	}
-
-	CFDataRef data = IOCFSerialize(retval, kIOCFSerializeToBinary);
-	*propertiesCnt = CFDataGetLength(data);
-	kern_return_t kr = vm_allocate(mach_task_self(), (vm_address_t*) properties, *propertiesCnt, true);
-
-	if (kr == kIOReturnSuccess)
-		memcpy(*properties, CFDataGetBytePtr(data), *propertiesCnt);
-
-	CFRelease(data);
-
-    return kr;
+	// The reply is the value itself, which IORegistryEntryCreateCFProperty()
+	// returns as is.
+	return serializeOutOfLine(value, properties, propertiesCnt);
 }
 
+kern_return_t is_io_registry_entry_get_property_bin_buf
+(
+	mach_port_t registry_entry,
+	io_name_t plane,
+	io_name_t property_name,
+	uint32_t options,
+	mach_vm_address_t buf,
+	mach_vm_size_t *bufsize,
+	io_buf_ptr_t *properties,
+	mach_msg_type_number_t *propertiesCnt
+)
+{
+	// See is_io_registry_entry_get_properties_bin_buf()
+	return is_io_registry_entry_get_property_bin(registry_entry, plane, property_name, options, properties, propertiesCnt);
+}
+
+kern_return_t is_io_registry_entry_get_property_bytes
+(
+	mach_port_t registry_entry,
+	io_name_t property_name,
+	io_struct_inband_t data,
+	mach_msg_type_number_t *dataCnt
+)
+{
+	IORegistryEntry* e = dynamic_cast<IORegistryEntry*>(IOObject::lookup(registry_entry));
+	if (!e)
+		return kIOReturnBadArgument;
+
+	CFStringRef key = CFStringCreateWithCString(kCFAllocatorDefault, property_name, kCFStringEncodingUTF8);
+	if (!key)
+		return kIOReturnBadArgument;
+
+	CFTypeRef value = CFDictionaryGetValue((CFDictionaryRef) e->getProperties(), key);
+	CFRelease(key);
+	if (!value)
+		return kIOReturnNoResources;
+
+	const void* bytes;
+	CFIndex length;
+	char string[sizeof(io_struct_inband_t)];
+	int64_t number;
+	CFTypeID type = CFGetTypeID(value);
+
+	if (type == CFDataGetTypeID())
+	{
+		bytes = CFDataGetBytePtr((CFDataRef) value);
+		length = CFDataGetLength((CFDataRef) value);
+	}
+	else if (type == CFStringGetTypeID())
+	{
+		// Only fails when the string and its NUL do not fit the reply
+		if (!CFStringGetCString((CFStringRef) value, string, sizeof(string), kCFStringEncodingUTF8))
+			return kIOReturnIPCError;
+		bytes = string;
+		length = strlen(string) + 1;
+	}
+	else if (type == CFBooleanGetTypeID())
+	{
+		bool yes = CFBooleanGetValue((CFBooleanRef) value);
+		bytes = yes ? "Yes" : "No";
+		length = yes ? sizeof("Yes") : sizeof("No");
+	}
+	else if (type == CFNumberGetTypeID() && !CFNumberIsFloatType((CFNumberRef) value))
+	{
+		// The low-order bytes come first on a little-endian guest
+		CFNumberGetValue((CFNumberRef) value, kCFNumberSInt64Type, &number);
+		bytes = &number;
+		length = CFNumberGetByteSize((CFNumberRef) value);
+	}
+	else
+		return kIOReturnBadArgument;
+
+	if (*dataCnt < length)
+		return kIOReturnIPCError;
+
+	*dataCnt = length;
+	memcpy(data, bytes, length);
+	return kIOReturnSuccess;
+}

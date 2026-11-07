@@ -49,6 +49,16 @@ IOIterator* ServiceRegistry::iteratorForMatchingServices(NSDictionary* criteria)
 	return new IOIterator(matching);
 }
 
+IOService* ServiceRegistry::firstMatchingService(NSDictionary* criteria) const
+{
+	for (IOService* service : m_registeredServices)
+	{
+		if (service->matches(criteria))
+			return service;
+	}
+	return nullptr;
+}
+
 void ServiceRegistry::registerService(IOService* service)
 {
 	m_registeredServices.push_back(service);
@@ -67,6 +77,31 @@ kern_return_t is_io_service_get_matching_services_ool
     return kIOReturnUnsupported;
 }
 
+// Unserializes the binary matching dictionary of a request. The caller
+// releases the result.
+static NSDictionary* unserializeMatching(io_struct_inband_t matching, mach_msg_type_number_t matchingCnt)
+{
+	CFStringRef errorString = nullptr;
+	CFTypeRef criteria = IOCFUnserializeBinary(matching, matchingCnt, nullptr, 0, &errorString);
+
+	if (!criteria)
+	{
+		os_log_error(OS_LOG_DEFAULT, "iokitd: cannot parse a matching dictionary");
+		if (errorString)
+			CFRelease(errorString);
+		return nil;
+	}
+
+	if (CFGetTypeID(criteria) != CFDictionaryGetTypeID())
+	{
+		os_log_error(OS_LOG_DEFAULT, "iokitd: the matching criteria are not a dictionary");
+		CFRelease(criteria);
+		return nil;
+	}
+
+	return (NSDictionary*) criteria;
+}
+
 kern_return_t is_io_service_get_matching_services_bin
 (
 	mach_port_t master_port,
@@ -75,37 +110,45 @@ kern_return_t is_io_service_get_matching_services_bin
 	mach_port_t *existing
 )
 {
-	CFStringRef errorString = nullptr;
-	try
-	{
-		CFTypeRef criteria = IOCFUnserializeBinary(matching, matchingCnt, nullptr, 0, &errorString);
+	*existing = MACH_PORT_NULL;
 
-		if (!criteria)
-			throwCFStringException(CFSTR("io_service_get_matching_services_bin(): cannot parse 'matching': %@"), errorString);
-		
-		if (CFGetTypeID(criteria) != CFDictionaryGetTypeID())
-			throw std::runtime_error("io_service_get_matching_services_bin(): dictionary expected");
-
-		// Criteria example:
-		// IOProviderClass -> IODisplayConnect
-		IOIterator* iterator = ServiceRegistry::instance()->iteratorForMatchingServices((NSDictionary*) criteria);
-		CFShow(criteria);
-		CFRelease(criteria);
-
-		*existing = iterator->port();
-
-		iterator->releaseLater();
-
-		return kIOReturnSuccess;
-	}
-	catch (const std::exception& e)
-	{
-		os_log_error(OS_LOG_DEFAULT, "is_io_service_get_matching_services_bin: %s", e.what());
-		if (errorString)
-			CFRelease(errorString);
-
+	// Criteria example:
+	// IOProviderClass -> IODisplayConnect
+	NSDictionary* criteria = unserializeMatching(matching, matchingCnt);
+	if (!criteria)
 		return kIOReturnBadArgument;
-	}
+
+	IOIterator* iterator = ServiceRegistry::instance()->iteratorForMatchingServices(criteria);
+	CFRelease(criteria);
+
+	*existing = iterator->port();
+	iterator->releaseLater();
+
+	return kIOReturnSuccess;
+}
+
+kern_return_t is_io_service_get_matching_service_bin
+(
+	mach_port_t master_port,
+	io_struct_inband_t matching,
+	mach_msg_type_number_t matchingCnt,
+	mach_port_t *service
+)
+{
+	*service = MACH_PORT_NULL;
+
+	NSDictionary* criteria = unserializeMatching(matching, matchingCnt);
+	if (!criteria)
+		return kIOReturnBadArgument;
+
+	IOService* match = ServiceRegistry::instance()->firstMatchingService(criteria);
+	CFRelease(criteria);
+
+	if (!match)
+		return kIOReturnNotFound;
+
+	*service = match->port();
+	return kIOReturnSuccess;
 }
 
 kern_return_t is_io_service_get_matching_services

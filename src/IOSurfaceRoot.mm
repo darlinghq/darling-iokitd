@@ -21,19 +21,40 @@
 #include "iokitd.h"
 #include "IOSurface.h"
 #include "IODisplayConnectX11.h"
+#include <EGL/eglext.h>
 #include <IOKit/IOCFUnserialize.h>
 #include <stdexcept>
 #include <iostream>
+#include <cstdlib>
 
 IOSurfaceRoot::IOSurfaceRoot()
 {
-	m_display = eglGetDisplay(IODisplayConnectX11::getDisplay());
+	// The native display is an Xlib Display. eglGetDisplay() would let Mesa
+	// guess the platform from EGL_PLATFORM, which Wayland sessions often set
+	// to "wayland"; Mesa then treats the Display as a wl_display and crashes.
+	Display* display = IODisplayConnectX11::getDisplay();
+
+	// A NULL display means XOpenDisplay() failed, for example because the X
+	// server rejected the connection (unset or stale XAUTHORITY). Do not hand
+	// an unchecked NULL to EGL; run without it. createSurface() already
+	// reports KERN_FAILURE when hasDisplay() is false.
+	if (!display)
+	{
+		m_display = EGL_NO_DISPLAY;
+		std::cerr << "IOSurfaceRoot: cannot open X display "
+			<< (std::getenv("DISPLAY") ? std::getenv("DISPLAY") : "(DISPLAY unset)")
+			<< " or its :0 fallback; X11 surface acceleration disabled"
+			<< std::endl;
+		return;
+	}
+
+	m_display = eglGetPlatformDisplay(EGL_PLATFORM_X11_KHR, display, NULL);
 
     if (m_display == EGL_NO_DISPLAY)
         return;
 
 	EGLConfig config;
-	int num_config;
+	int num_config = 0;
 
 	EGLint const attribute_list[] = {
 		EGL_RED_SIZE, 1,
@@ -42,15 +63,31 @@ IOSurfaceRoot::IOSurfaceRoot()
 		EGL_NONE
 	};
 
-    eglInitialize(m_display, NULL, NULL);
-    eglChooseConfig(m_display, attribute_list, &config, 1, &num_config);
+	// On failure leave m_display as EGL_NO_DISPLAY: hasDisplay() is then false and
+	// createSurface() reports KERN_FAILURE instead of using a half-initialised display.
+	if (!eglInitialize(m_display, NULL, NULL))
+	{
+		std::cerr << "IOSurfaceRoot: eglInitialize failed, EGL error 0x" << std::hex << eglGetError() << std::dec << std::endl;
+		m_display = EGL_NO_DISPLAY;
+		return;
+	}
+
+	if (!eglChooseConfig(m_display, attribute_list, &config, 1, &num_config) || num_config < 1)
+	{
+		std::cerr << "IOSurfaceRoot: eglChooseConfig found no config (" << num_config
+			<< "), EGL error 0x" << std::hex << eglGetError() << std::dec << std::endl;
+		eglTerminate(m_display);
+		m_display = EGL_NO_DISPLAY;
+		return;
+	}
 
     eglBindAPI(EGL_OPENGL_API);
 }
 
 IOSurfaceRoot::~IOSurfaceRoot()
 {
-	eglTerminate(m_display);
+	if (m_display != EGL_NO_DISPLAY)
+		eglTerminate(m_display);
 }
 
 IOSurfaceRoot* IOSurfaceRoot::instance()
