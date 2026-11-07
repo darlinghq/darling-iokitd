@@ -5,7 +5,9 @@ Cuts the assertion bookkeeping and the MIG routine out of
 src/PowerAssertions.mm, builds them with $CC against minimal Mach,
 dispatch, BSM and IOKit stand-ins, and checks that retain and release
 of a held assertion succeed and that the last release drops the hold.
-IOKitUser maps any MIG error from this routine to kIOReturnInternalError.
+IOKitUser maps any MIG error from this routine to kIOReturnInternalError, so
+errors are reported in return_code: an ID the caller does not hold is
+kIOReturnBadArgument, as IOPMAssertionRelease() returns on macOS 27.
 
 Usage: CC=clang++ python3 tests/pm-assertion-release.py [source dir]
 CC must be a clang-based C++ compiler (CC=clang++ or CC="zig c++") because the
@@ -18,8 +20,8 @@ here = os.path.dirname(os.path.abspath(__file__))
 src = sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "..", "src")
 NAMES = ["PowerAssertion::addRef", "PowerAssertion::delRef", "AppAssertions::AppAssertions",
          "AppAssertions::~AppAssertions", "AppAssertions::get", "AppAssertions::getAssertion",
-         "AppAssertions::createAssertion", "AppAssertions::killAssertion",
-         "_io_pm_assertion_retain_release"]
+         "AppAssertions::createAssertion", "AppAssertions::setEnabled",
+         "AppAssertions::killAssertion", "callerPid", "_io_pm_assertion_retain_release"]
 
 def cut(text, name):
     m = re.search(r"^(?:[^\s(){};]+[ \t]+)*" + re.escape(name) + r"\b[^;{]*\{", text, re.M)
@@ -42,6 +44,11 @@ typedef int kern_return_t;
 #define KERN_SUCCESS 0
 #define KERN_INVALID_ARGUMENT 4
 #define KERN_NOT_SUPPORTED 46
+typedef int IOReturn;
+typedef const void* CFStringRef;
+#define kIOReturnSuccess 0
+#define kIOReturnBadArgument ((IOReturn) 0xe00002c2)
+#define kIOReturnNoResources ((IOReturn) 0xe00002be)
 enum { kIOPMAssertionMIGDoRetain = 1, kIOPMAssertionMIGDoRelease = -1 };
 """,
     "dispatch/dispatch.h": """
@@ -56,14 +63,16 @@ static inline dispatch_source_t dispatch_source_create(const void*, uintptr_t, u
 template <typename F> static inline void dispatch_source_set_event_handler(dispatch_source_t, F) {}
 static inline void dispatch_resume(dispatch_source_t) {}
 static inline void dispatch_release(dispatch_source_t) {}
+static inline void dispatch_source_cancel(dispatch_source_t) {}
 """,
 }
 
 HARNESS = r"""
 #include "PowerAssertions.h"
+#include <climits>
 #include <cstdio>
-#include <iostream>
 #include <stdexcept>
+#define os_log_error(log, ...) fprintf(stderr, __VA_ARGS__)
 
 typedef unsigned mach_port_t; typedef int pid_t; typedef struct { unsigned val[8]; } audit_token_t;
 static void audit_token_to_au32(audit_token_t t, void*, void*, void*, void*, void*, pid_t* pid, void*, void*)
@@ -91,14 +100,16 @@ int main()
 {
 	CountingAssertion display;
 	audit_token_t token = {{0, 0, 0, 0, 0, 4242, 0, 0}};
-	int id = AppAssertions::get(4242)->createAssertion(&display);
+	int id = 0;
+	CHECK(AppAssertions::get(4242)->createAssertion(&display, true, &id) == kIOReturnSuccess && id > 0, "create");
 
 	int count = -1, disable = 7, enable = 7, rc = -1;
 	kern_return_t kr = _io_pm_assertion_retain_release(0, token, id + 1000, kIOPMAssertionMIGDoRetain, &count, &disable, &enable, &rc);
-	CHECK(kr == KERN_INVALID_ARGUMENT, "unknown id: kr=%d, want %d", kr, KERN_INVALID_ARGUMENT);
+	CHECK(kr == KERN_SUCCESS && rc == kIOReturnBadArgument, "unknown id: kr=%d rc=0x%x, want 0 0x%x", kr, rc, kIOReturnBadArgument);
 
 	kr = _io_pm_assertion_retain_release(0, token, id, 99, &count, &disable, &enable, &rc);
-	CHECK(kr == KERN_INVALID_ARGUMENT, "invalid action: kr=%d, want %d", kr, KERN_INVALID_ARGUMENT);
+	CHECK(kr == KERN_SUCCESS && rc == kIOReturnBadArgument, "invalid action: kr=%d rc=0x%x, want 0 0x%x", kr, rc, kIOReturnBadArgument);
+	CHECK(display.active == 1 && count == 0, "invalid action changed the assertion");
 
 	rc = -1;
 	kr = _io_pm_assertion_retain_release(0, token, id, kIOPMAssertionMIGDoRetain, &count, &disable, &enable, &rc);
@@ -121,7 +132,21 @@ int main()
 
 	count = 0;
 	kr = _io_pm_assertion_retain_release(0, token, id, kIOPMAssertionMIGDoRelease, &count, &disable, &enable, &rc);
-	CHECK(kr == KERN_INVALID_ARGUMENT, "release after last release: kr=%d, want %d", kr, KERN_INVALID_ARGUMENT);
+	CHECK(kr == KERN_SUCCESS && rc == kIOReturnBadArgument, "release after last release: kr=%d rc=0x%x, want 0 0x%x", kr, rc, kIOReturnBadArgument);
+
+	// A disabled assertion holds nothing until it is enabled.
+	CHECK(AppAssertions::get(4242)->createAssertion(&display, false, &id) == kIOReturnSuccess, "create disabled");
+	CHECK(display.active == 0, "disabled assertion took the hold");
+	AppAssertions::get(4242)->setEnabled(AppAssertions::get(4242)->getAssertion(id), true);
+	CHECK(display.active == 1, "enabling did not take the hold");
+	kr = _io_pm_assertion_retain_release(0, token, id, kIOPMAssertionMIGDoRelease, &count, &disable, &enable, &rc);
+	CHECK(kr == KERN_SUCCESS && rc == 0 && display.active == 0, "release of the enabled assertion");
+
+	// Another process cannot release it.
+	CHECK(AppAssertions::get(4242)->createAssertion(&display, true, &id) == kIOReturnSuccess, "create again");
+	audit_token_t other = {{0, 0, 0, 0, 0, 4343, 0, 0}};
+	kr = _io_pm_assertion_retain_release(0, other, id, kIOPMAssertionMIGDoRelease, &count, &disable, &enable, &rc);
+	CHECK(kr == KERN_SUCCESS && rc == kIOReturnBadArgument && display.active == 1, "release by another process");
 	CHECK(count >= 0, "release after last release made count %d negative", count);
 
 	printf("%s: %d checks, %d failed\n", failures ? "FAIL" : "PASS", checks, failures);

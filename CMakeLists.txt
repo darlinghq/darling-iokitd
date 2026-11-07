@@ -47,6 +47,7 @@ set(iokitd_sources
 	src/PowerAssertionsX11.mm
 	src/IOPMrootDomain.mm
 	src/HostBus.c
+	src/HostPowerInhibit.c
 	src/LogindSleep.c
 	src/IOSurfaceRoot.mm
 	src/IOSurface.mm

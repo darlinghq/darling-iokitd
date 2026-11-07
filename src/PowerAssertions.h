@@ -25,38 +25,63 @@
 
 void initPM();
 
+// One kind of power assertion. The host is affected while at least one
+// enabled assertion of the kind exists, in any process.
 class PowerAssertion
 {
 public:
-	// How many AppAssertions instances reference this assertion (*not* a sum of references within all these AppAssertions instances)
 	void addRef();
 	void delRef();
 protected:
 	virtual void activate() = 0;
 	virtual void deactivate() = 0;
 private:
-	int m_numHoldingApps = 0;
+	unsigned int m_numHolds = 0;
 };
 
+// Assertion types that are valid but have no host counterpart
+class PowerAssertionNoHostEffect : public PowerAssertion
+{
+protected:
+	void activate() override {}
+	void deactivate() override {}
+};
+
+// Keeps the host from suspending on idle
+class PowerAssertionPreventIdleSleep : public PowerAssertion
+{
+protected:
+	void activate() override;
+	void deactivate() override;
+};
+
+// The assertions of one process; they go away when the process exits.
 class AppAssertions
 {
 private:
 	AppAssertions(int pid);
 	~AppAssertions();
 public:
-	static AppAssertions* get(int pid);
+	static AppAssertions* get(int pid, bool create = true);
 
 	struct HeldAssertion
 	{
 		int refcount;
 		PowerAssertion* assertion;
+		bool enabled;
+		// Changes whenever a timeout is armed or the assertion is replaced
+		uint64_t timeoutGeneration;
 	};
 	HeldAssertion* getAssertion(int assertionId);
-	int createAssertion(PowerAssertion* which);
+	IOReturn createAssertion(PowerAssertion* which, bool enabled, int* assertionId);
+	void setEnabled(HeldAssertion* assertion, bool enabled);
+	void setTimeout(int assertionId, double seconds, CFStringRef action);
 	void killAssertion(int assertionId);
 private:
+	int m_pid;
 	std::unordered_map<int, HeldAssertion> m_heldAssertions;
 	int m_nextAssertionNumber = 1;
+	uint64_t m_nextTimeoutGeneration = 1;
 
 	dispatch_source_t m_processSource;
 	static std::unordered_map<int, AppAssertions*> m_instances;
