@@ -32,6 +32,7 @@
 #include "IODisplayConnectX11.h"
 #include "PowerAssertions.h"
 #include "IOSurfaceRoot.h"
+#include "IOPlatformExpertDevice.h"
 
 extern "C" {
 #include "iokitmigServer.h"
@@ -122,6 +123,7 @@ static void discoverAllDevices()
 	ServiceRegistry* registry = ServiceRegistry::instance();
 	// Trick to make sure the root object gets instantiated first and gets the lowest ID
 	IORegistryEntry::root();
+	IOPlatformExpertDevice::registerSelf(registry);
 	IODisplayConnectX11::discoverDevices(registry);
 	IOSurfaceRoot::registerSelf(registry);
 }

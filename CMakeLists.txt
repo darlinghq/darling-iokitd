@@ -17,6 +17,8 @@ include_directories(
 	${X11_Xrandr_INCLUDE_PATH}
 )
 include_directories(BEFORE ${CMAKE_CURRENT_BINARY_DIR})
+# dserver_platform_identity_t, used by libsystem_kernel's __darling_get_platform_identity
+include_directories(${CMAKE_SOURCE_DIR}/src/external/darlingserver/include)
 
 mig(iokitmig.defs)
 mig(powermanagement.defs)
@@ -43,6 +45,7 @@ set(iokitd_sources
 	src/IOUserClient.mm
 	src/IOInterestNotification.mm
 	src/IOUserClientApple.mm
+	src/IOPlatformExpertDevice.mm
 	${CMAKE_CURRENT_BINARY_DIR}/iokitmigServer.c
 	${CMAKE_CURRENT_BINARY_DIR}/powermanagementServer.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../IOKitUser/IOCFSerialize.c
