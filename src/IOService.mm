@@ -20,6 +20,7 @@
 #include "IOService.h"
 #include "IOUserClient.h"
 #import <Foundation/NSArray.h>
+#import <Foundation/NSString.h>
 
 extern "C" {
 #include "iokitmigServer.h"
@@ -39,6 +40,16 @@ bool IOService::matches(NSDictionary* dict)
 	{
 		NSObject* ourProp = ourProps[key];
 		NSObject* expectedValue = dict[key];
+
+		// In a matching dictionary, IOProviderClass names a class the service
+		// must be an instance of (or inherit from). In our personality it names
+		// the provider we attach to, so the two can't be compared directly.
+		if ([key isEqualToString: @"IOProviderClass"])
+		{
+			if (![expectedValue isKindOfClass:[NSString class]] || !conformsTo([(NSString*) expectedValue UTF8String]))
+				return false;
+			continue;
+		}
 
 		if ([ourProp isKindOfClass:[NSArray class]])
 		{
