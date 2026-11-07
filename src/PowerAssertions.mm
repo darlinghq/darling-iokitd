@@ -216,6 +216,8 @@ kern_return_t _io_pm_assertion_retain_release
 	}
 
 	*return_code = 0;
+	*disableAppSleep = 0;
+	*enableAppSleep = 0;
 	if (action == kIOPMAssertionMIGDoRetain)
 	{
 		*retainCnt = ++ha->refcount;
@@ -229,5 +231,5 @@ kern_return_t _io_pm_assertion_retain_release
 	else
 		return KERN_INVALID_ARGUMENT;
 
-    return KERN_NOT_SUPPORTED;
+	return KERN_SUCCESS;
 }

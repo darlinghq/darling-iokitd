@@ -36,10 +36,12 @@ set(iokitd_sources
 	src/IODisplayConnect.mm
 	src/IODisplayConnectX11.mm
 	src/PowerAssertions.mm
+	src/PowerSources.mm
 	src/PowerAssertionsX11.mm
 	src/IOSurfaceRoot.mm
 	src/IOSurface.mm
 	src/IOUserClient.mm
+	src/IOInterestNotification.mm
 	src/IOUserClientApple.mm
 	${CMAKE_CURRENT_BINARY_DIR}/iokitmigServer.c
 	${CMAKE_CURRENT_BINARY_DIR}/powermanagementServer.c

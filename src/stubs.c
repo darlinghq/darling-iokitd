@@ -293,20 +293,6 @@ kern_return_t is_io_service_add_notification
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_service_add_interest_notification
-(
-	mach_port_t service,
-	io_name_t type_of_interest,
-	mach_port_t wake_port,
-	io_async_ref_t reference,
-	mach_msg_type_number_t referenceCnt,
-	mach_port_t *notification
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
 kern_return_t is_io_service_acknowledge_notification
 (
 	mach_port_t service,
@@ -485,20 +471,6 @@ kern_return_t is_io_service_add_notification_64
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_service_add_interest_notification_64
-(
-	mach_port_t service,
-	io_name_t type_of_interest,
-	mach_port_t wake_port,
-	io_async_ref64_t reference,
-	mach_msg_type_number_t referenceCnt,
-	mach_port_t *notification
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
 kern_return_t is_io_service_add_notification_ool_64
 (
 	mach_port_t master_port,
@@ -614,22 +586,6 @@ kern_return_t is_io_service_add_notification_bin
 	mach_msg_type_number_t matchingCnt,
 	mach_port_t wake_port,
 	io_async_ref_t reference,
-	mach_msg_type_number_t referenceCnt,
-	mach_port_t *notification
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
-kern_return_t is_io_service_add_notification_bin_64
-(
-	mach_port_t master_port,
-	io_name_t notification_type,
-	io_struct_inband_t matching,
-	mach_msg_type_number_t matchingCnt,
-	mach_port_t wake_port,
-	io_async_ref64_t reference,
 	mach_msg_type_number_t referenceCnt,
 	mach_port_t *notification
 )
