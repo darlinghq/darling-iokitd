@@ -19,11 +19,14 @@
 
 #include "PowerAssertions.h"
 #include "PowerAssertionsX11.h"
+#include "HostPowerInhibit.h"
+#include <climits>
+#include <cmath>
 #include <stdexcept>
-#include <iostream>
 #include <string>
 #include <CoreFoundation/CoreFoundation.h>
 #include <bsm/libbsm.h>
+#include <os/log.h>
 #import <Foundation/NSString.h>
 
 extern "C" {
@@ -35,63 +38,79 @@ static std::unordered_map<std::string, PowerAssertion*> g_assertionKinds;
 
 void initPM()
 {
-	NSString* str = (NSString*) kIOPMAssertPreventUserIdleDisplaySleep;
-	g_assertionKinds.insert(std::make_pair([str UTF8String], new PowerAssertionPreventDisplaySleep));
-}
+	static PowerAssertionPreventIdleSleep idle;
+	static PowerAssertionPreventDisplaySleep display;
+	static PowerAssertionNoHostEffect other;
 
-static PowerAssertion* getByType(NSString* type)
-{
-	auto it = g_assertionKinds.find([type UTF8String]);
-	if (it != g_assertionKinds.end())
-		return it->second;
-	return nullptr;
+	// The legacy and current names of a type share one kind.
+	g_assertionKinds = {
+		{ [(NSString*) kIOPMAssertionTypeNoIdleSleep UTF8String], &idle },
+		{ [(NSString*) kIOPMAssertPreventUserIdleSystemSleep UTF8String], &idle },
+		{ [(NSString*) kIOPMAssertionTypeNoDisplaySleep UTF8String], &display },
+		{ [(NSString*) kIOPMAssertPreventUserIdleDisplaySleep UTF8String], &display },
+		{ [(NSString*) kIOPMAssertionTypePreventSystemSleep UTF8String], &other },
+		{ [(NSString*) kIOPMAssertPreventDiskIdle UTF8String], &other },
+		{ [(NSString*) kIOPMAssertNetworkClientActive UTF8String], &other },
+	};
 }
 
 void PowerAssertion::addRef()
 {
-	if (m_numHoldingApps == 0)
+	if (m_numHolds++ == 0)
 		activate();
-	m_numHoldingApps++;
 }
 
 void PowerAssertion::delRef()
 {
-	m_numHoldingApps--;
-	if (m_numHoldingApps == 0)
+	if (m_numHolds > 0 && --m_numHolds == 0)
 		deactivate();
 }
 
+void PowerAssertionPreventIdleSleep::activate()
+{
+	if (!iokitd_idle_inhibit_acquire())
+		os_log(OS_LOG_DEFAULT, "iokitd: could not take a host idle inhibitor");
+}
+
+void PowerAssertionPreventIdleSleep::deactivate()
+{
+	iokitd_idle_inhibit_release();
+}
+
 AppAssertions::AppAssertions(int pid)
+: m_pid(pid)
 {
 	m_processSource = dispatch_source_create(DISPATCH_SOURCE_TYPE_PROC, pid, DISPATCH_PROC_EXIT, dispatch_get_main_queue());
 	if (!m_processSource)
 		throw std::runtime_error("dispatch_source_create(DISPATCH_SOURCE_TYPE_PROC) failed");
 
-	if (m_processSource)
-	{
-		dispatch_source_set_event_handler(m_processSource, ^{
-			m_instances.erase(pid);
-			delete this;
-		});
-		dispatch_resume(m_processSource);
-	}
+	dispatch_source_set_event_handler(m_processSource, ^{
+		m_instances.erase(pid);
+		delete this;
+	});
+	dispatch_resume(m_processSource);
 }
 
 AppAssertions::~AppAssertions()
 {
-	for (auto& [assertionId, ha] : m_heldAssertions)
-		ha.assertion->delRef();
-		
-	if (m_processSource != nullptr)
-		dispatch_release(m_processSource);
+	for (auto& [assertionId, held] : m_heldAssertions)
+	{
+		if (held.enabled)
+			held.assertion->delRef();
+	}
+
+	dispatch_source_cancel(m_processSource);
+	dispatch_release(m_processSource);
 }
 
-AppAssertions* AppAssertions::get(int pid)
+AppAssertions* AppAssertions::get(int pid, bool create)
 {
 	auto it = m_instances.find(pid);
 	if (it != m_instances.end())
 		return it->second;
-	
+	if (!create)
+		return nullptr;
+
 	try
 	{
 		AppAssertions* aa = new AppAssertions(pid);
@@ -100,7 +119,7 @@ AppAssertions* AppAssertions::get(int pid)
 	}
 	catch (const std::exception& e)
 	{
-		std::cerr << "AppAssertions::get() failed for PID " << pid << ": " << e.what() << std::endl;
+		os_log_error(OS_LOG_DEFAULT, "iokitd: cannot track assertions of pid %d: %s", pid, e.what());
 		return nullptr;
 	}
 }
@@ -113,13 +132,56 @@ AppAssertions::HeldAssertion* AppAssertions::getAssertion(int assertionId)
 	return nullptr;
 }
 
-int AppAssertions::createAssertion(PowerAssertion* which)
+IOReturn AppAssertions::createAssertion(PowerAssertion* which, bool enabled, int* assertionId)
 {
+	if (m_nextAssertionNumber == INT_MAX)
+		return kIOReturnNoResources;
+
 	int number = m_nextAssertionNumber++;
-	HeldAssertion held = { 1, which };
-	m_heldAssertions.insert(std::make_pair(number, held));
-	which->addRef();
-	return number;
+	m_heldAssertions.insert(std::make_pair(number, HeldAssertion{ 1, which, enabled, 0 }));
+	if (enabled)
+		which->addRef();
+	*assertionId = number;
+	return kIOReturnSuccess;
+}
+
+void AppAssertions::setEnabled(HeldAssertion* held, bool enabled)
+{
+	if (held->enabled == enabled)
+		return;
+	held->enabled = enabled;
+	if (enabled)
+		held->assertion->addRef();
+	else
+		held->assertion->delRef();
+}
+
+void AppAssertions::setTimeout(int assertionId, double seconds, CFStringRef action)
+{
+	HeldAssertion* held = getAssertion(assertionId);
+	if (!held)
+		return;
+
+	uint64_t generation = m_nextTimeoutGeneration++;
+	held->timeoutGeneration = generation;
+
+	bool release = action && CFEqual(action, kIOPMAssertionTimeoutActionRelease);
+	bool turnOff = !action || CFEqual(action, kIOPMAssertionTimeoutActionTurnOff);
+	int pid = m_pid;
+
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, int64_t(seconds * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+		// The process may have exited, or the assertion may be gone or rearmed.
+		AppAssertions* app = AppAssertions::get(pid, false);
+		HeldAssertion* current = app ? app->getAssertion(assertionId) : nullptr;
+		if (!current || current->timeoutGeneration != generation)
+			return;
+
+		os_log(OS_LOG_DEFAULT, "iokitd: power assertion %d of pid %d timed out", assertionId, pid);
+		if (release)
+			app->killAssertion(assertionId);
+		else if (turnOff)
+			app->setEnabled(current, false);
+	});
 }
 
 void AppAssertions::killAssertion(int assertionId)
@@ -128,9 +190,73 @@ void AppAssertions::killAssertion(int assertionId)
 	if (it == m_heldAssertions.end())
 		return;
 
-	it->second.assertion->delRef();
+	if (it->second.enabled)
+		it->second.assertion->delRef();
 	m_heldAssertions.erase(it);
 }
+
+static pid_t callerPid(audit_token_t token)
+{
+	pid_t pid;
+	audit_token_to_au32(token, nullptr, nullptr, nullptr, nullptr, nullptr, &pid, nullptr, nullptr);
+	return pid;
+}
+
+// Takes over the out-of-line properties data. Returns a dictionary or NULL.
+static CFDictionaryRef copyProperties(vm_offset_t props, mach_msg_type_number_t propsCnt)
+{
+	CFDictionaryRef properties = nullptr;
+
+	if (props && propsCnt)
+	{
+		CFDataRef data = CFDataCreateWithBytesNoCopy(nullptr, (const UInt8*) props, propsCnt, kCFAllocatorNull);
+		if (data)
+		{
+			properties = (CFDictionaryRef) CFPropertyListCreateWithData(nullptr, data, kCFPropertyListImmutable, nullptr, nullptr);
+			CFRelease(data);
+		}
+	}
+	if (props)
+		vm_deallocate(mach_task_self(), props, propsCnt);
+
+	if (properties && CFGetTypeID(properties) != CFDictionaryGetTypeID())
+	{
+		CFRelease(properties);
+		properties = nullptr;
+	}
+	return properties;
+}
+
+// kIOPMAssertionLevelKey: kIOPMAssertionLevelOff disables the assertion and
+// any other number enables it. Returns false if the value is not a number.
+static bool levelIsOn(CFTypeRef value, bool* on)
+{
+	int level;
+
+	if (CFGetTypeID(value) != CFNumberGetTypeID() || !CFNumberGetValue((CFNumberRef) value, kCFNumberIntType, &level))
+		return false;
+	*on = level != kIOPMAssertionLevelOff;
+	return true;
+}
+
+// kIOPMAssertionTimeoutKey; 0 means no timeout.
+static bool timeoutSeconds(CFTypeRef value, double* seconds)
+{
+	if (CFGetTypeID(value) != CFNumberGetTypeID() || !CFNumberGetValue((CFNumberRef) value, kCFNumberDoubleType, seconds))
+		return false;
+	return std::isfinite(*seconds) && *seconds >= 0;
+}
+
+static CFStringRef timeoutAction(CFDictionaryRef properties)
+{
+	CFTypeRef action = CFDictionaryGetValue(properties, kIOPMAssertionTimeoutActionKey);
+	if (action && CFGetTypeID(action) == CFStringGetTypeID())
+		return (CFStringRef) action;
+	return nullptr;
+}
+
+// The MIG routines report errors in return_code; the transport always
+// succeeds, so that clients get the IOReturn rather than an internal error.
 
 kern_return_t _io_pm_assertion_create
 (
@@ -144,51 +270,39 @@ kern_return_t _io_pm_assertion_create
 	int *return_code
 )
 {
-	if (!props)
-		return KERN_INVALID_ARGUMENT;
+	*assertion_id = kIOPMNullAssertionID;
+	*disableAppSleep = 0;
+	*enTrIntensity = 0;
+	*return_code = kIOReturnBadArgument;
 
-	CFDataRef data = CFDataCreateWithBytesNoCopy(nullptr, (const UInt8*) props, propsCnt, kCFAllocatorNull);
-	CFDictionaryRef properties = (CFDictionaryRef) CFPropertyListCreateWithData(nullptr, data, kCFPropertyListImmutable, nullptr, nullptr);
-
-	CFRelease(data);
-
-	vm_deallocate(mach_task_self(), props, propsCnt);
-
+	CFDictionaryRef properties = copyProperties(props, propsCnt);
 	if (!properties)
-		return KERN_INVALID_ARGUMENT;
-	
-	if (CFGetTypeID(properties) != CFDictionaryGetTypeID())
+		return KERN_SUCCESS;
+
+	CFTypeRef type = CFDictionaryGetValue(properties, kIOPMAssertionTypeKey);
+	CFTypeRef level = CFDictionaryGetValue(properties, kIOPMAssertionLevelKey);
+	CFTypeRef timeout = CFDictionaryGetValue(properties, kIOPMAssertionTimeoutKey);
+	bool enabled = true;
+	double seconds = 0;
+
+	// An unknown type is kIOReturnBadArgument, as observed on macOS.
+	auto kind = g_assertionKinds.end();
+	if (type && CFGetTypeID(type) == CFStringGetTypeID())
+		kind = g_assertionKinds.find([(NSString*) type UTF8String]);
+
+	if (kind != g_assertionKinds.end()
+		&& (!level || levelIsOn(level, &enabled))
+		&& (!timeout || timeoutSeconds(timeout, &seconds)))
 	{
-		std::cerr << "Unexpected properties data type\n";
-		CFRelease(properties);
-		return KERN_INVALID_ARGUMENT;
+		AppAssertions* app = AppAssertions::get(callerPid(token));
+		*return_code = app ? app->createAssertion(kind->second, enabled, assertion_id) : kIOReturnNoResources;
+
+		if (*return_code == kIOReturnSuccess && seconds > 0)
+			app->setTimeout(*assertion_id, seconds, timeoutAction(properties));
 	}
 
-	CFStringRef cftype = (CFStringRef) CFDictionaryGetValue(properties, kIOPMAssertionTypeKey);
-
-	if (!cftype || CFStringGetTypeID() != CFGetTypeID(cftype))
-	{
-		std::cerr << "kIOPMAssertionTypeKey is not a string\n";
-		CFRelease(properties);
-		return KERN_INVALID_ARGUMENT;
-	}
-
-	PowerAssertion* pa = getByType((NSString*) cftype);
-	if (pa == nullptr)
-	{
-		std::cerr << "Unsupported assertion type\n";
-		CFRelease(properties);
-		return KERN_INVALID_ARGUMENT;
-	}
-
-	pid_t callerPid;
-	audit_token_to_au32(token, nullptr, nullptr, nullptr, nullptr, nullptr, &callerPid, nullptr, nullptr);
-
-	// std::cout << "Creating assertion for PID " << callerPid << std::endl;
-	*assertion_id = AppAssertions::get(callerPid)->createAssertion(pa);
-	*return_code = 0;
-	
-    return KERN_SUCCESS;
+	CFRelease(properties);
+	return KERN_SUCCESS;
 }
 
 kern_return_t _io_pm_assertion_retain_release
@@ -203,23 +317,24 @@ kern_return_t _io_pm_assertion_retain_release
 	int *return_code
 )
 {
-	pid_t callerPid;
-	audit_token_to_au32(token, nullptr, nullptr, nullptr, nullptr, nullptr, &callerPid, nullptr, nullptr);
-
-	AppAssertions* appAssertions = AppAssertions::get(callerPid);
-	AppAssertions::HeldAssertion* ha = appAssertions->getAssertion(assertion_id);
-
-	if (!ha)
-	{
-		std::cerr << "_io_pm_assertion_retain_release() cannot find assertion " << assertion_id << std::endl;
-		return KERN_INVALID_ARGUMENT;
-	}
-
-	*return_code = 0;
+	*retainCnt = 0;
 	*disableAppSleep = 0;
 	*enableAppSleep = 0;
+	// An ID the caller does not hold is kIOReturnBadArgument, as observed on macOS.
+	*return_code = kIOReturnBadArgument;
+
+	AppAssertions* appAssertions = AppAssertions::get(callerPid(token), false);
+	AppAssertions::HeldAssertion* ha = appAssertions ? appAssertions->getAssertion(assertion_id) : nullptr;
+	if (!ha)
+		return KERN_SUCCESS;
+
 	if (action == kIOPMAssertionMIGDoRetain)
 	{
+		if (ha->refcount == INT_MAX)
+		{
+			*return_code = kIOReturnNoResources;
+			return KERN_SUCCESS;
+		}
 		*retainCnt = ++ha->refcount;
 	}
 	else if (action == kIOPMAssertionMIGDoRelease)
@@ -229,7 +344,55 @@ kern_return_t _io_pm_assertion_retain_release
 			appAssertions->killAssertion(assertion_id);
 	}
 	else
-		return KERN_INVALID_ARGUMENT;
+		return KERN_SUCCESS;
 
+	*return_code = kIOReturnSuccess;
+	return KERN_SUCCESS;
+}
+
+kern_return_t _io_pm_assertion_set_properties
+(
+	mach_port_t server,
+	audit_token_t token,
+	int assertion_id,
+	vm_offset_t props,
+	mach_msg_type_number_t propsCnt,
+	int *disableAppSleep,
+	int *enableAppSleep,
+	int *enTrIntensity,
+	int *return_code
+)
+{
+	*disableAppSleep = 0;
+	*enableAppSleep = 0;
+	*enTrIntensity = 0;
+	*return_code = kIOReturnBadArgument;
+
+	CFDictionaryRef properties = copyProperties(props, propsCnt);
+	if (!properties)
+		return KERN_SUCCESS;
+
+	AppAssertions* app = AppAssertions::get(callerPid(token), false);
+	AppAssertions::HeldAssertion* held = app ? app->getAssertion(assertion_id) : nullptr;
+	CFTypeRef level = CFDictionaryGetValue(properties, kIOPMAssertionLevelKey);
+	CFTypeRef timeout = CFDictionaryGetValue(properties, kIOPMAssertionTimeoutKey);
+	bool enabled = held ? held->enabled : false;
+	double seconds = 0;
+
+	// Other properties (names, details) are descriptive and accepted as they are.
+	if (held && (!level || levelIsOn(level, &enabled)) && (!timeout || timeoutSeconds(timeout, &seconds)))
+	{
+		app->setEnabled(held, enabled);
+		if (timeout)
+		{
+			if (seconds > 0)
+				app->setTimeout(assertion_id, seconds, timeoutAction(properties));
+			else
+				held->timeoutGeneration = 0;
+		}
+		*return_code = kIOReturnSuccess;
+	}
+
+	CFRelease(properties);
 	return KERN_SUCCESS;
 }

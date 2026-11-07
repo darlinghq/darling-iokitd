@@ -21,11 +21,16 @@
 #define POWERASSERTIONSX11_H
 #include "PowerAssertions.h"
 
+// Keeps the host display awake, which also keeps the host from suspending
+// on idle (as kIOPMAssertPreventUserIdleDisplaySleep does on macOS)
 class PowerAssertionPreventDisplaySleep : public PowerAssertion
 {
 protected:
 	void activate() override;
 	void deactivate() override;
+private:
+	bool m_screenSaverInhibited = false;
+	bool m_disabledDPMS = false;
 };
 
 #endif

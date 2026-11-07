@@ -19,7 +19,7 @@
 
 #include "PowerAssertionsX11.h"
 #include "IODisplayConnectX11.h"
-#include <iostream>
+#include "HostPowerInhibit.h"
 #include <X11/Xlib.h>
 
 #define BOOL	BOOL_THOU_SHALT_NOT_TYPEDEF_BOOL_IN_UNIMPORTANT_HEADERS
@@ -28,26 +28,47 @@
 
 void PowerAssertionPreventDisplaySleep::activate()
 {
+	iokitd_idle_inhibit_acquire();
+
+	// The desktop's screen saver service also works on Wayland. Without one,
+	// turn off X11 display power management while the assertion is held.
+	m_screenSaverInhibited = iokitd_screensaver_inhibit_acquire();
+	if (m_screenSaverInhibited)
+		return;
+	iokitd_screensaver_inhibit_release();
+
 	Display* display = IODisplayConnectX11::getDisplay();
 	if (!display)
 		return;
 
 	int eventBase, errorBase;
-	if (DPMSQueryExtension(display, &eventBase, &errorBase))
+	CARD16 powerLevel;
+	BOOL_THOU_SHALT_NOT_TYPEDEF_BOOL_IN_UNIMPORTANT_HEADERS enabled;
+	if (DPMSQueryExtension(display, &eventBase, &errorBase) && DPMSInfo(display, &powerLevel, &enabled) && enabled)
 	{
+		// Only undo what we changed.
 		DPMSDisable(display);
+		XFlush(display);
+		m_disabledDPMS = true;
 	}
 }
 
 void PowerAssertionPreventDisplaySleep::deactivate()
 {
-	Display* display = IODisplayConnectX11::getDisplay();
-	if (!display)
-		return;
+	if (m_screenSaverInhibited)
+		iokitd_screensaver_inhibit_release();
+	m_screenSaverInhibited = false;
 
-	int eventBase, errorBase;
-	if (DPMSQueryExtension(display, &eventBase, &errorBase))
+	if (m_disabledDPMS)
 	{
-		DPMSEnable(display);
+		Display* display = IODisplayConnectX11::getDisplay();
+		if (display)
+		{
+			DPMSEnable(display);
+			XFlush(display);
+		}
+		m_disabledDPMS = false;
 	}
+
+	iokitd_idle_inhibit_release();
 }
