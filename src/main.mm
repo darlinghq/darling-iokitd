@@ -33,6 +33,7 @@
 #include "PowerAssertions.h"
 #include "IOSurfaceRoot.h"
 #include "IOPlatformExpertDevice.h"
+#include "IOPMrootDomain.h"
 
 extern "C" {
 #include "iokitmigServer.h"
@@ -105,6 +106,8 @@ int main(int argc, const char** argv)
 	dispatch_resume(portSource);
 	dispatch_resume(pwrMgmtPortSource);
 
+	IOPMrootDomain::instance()->startHostSleepMonitor();
+
 	os_log(OS_LOG_DEFAULT, "iokitd up and running.");
 
 	dispatch_main();
@@ -126,4 +129,5 @@ static void discoverAllDevices()
 	IOPlatformExpertDevice::registerSelf(registry);
 	IODisplayConnectX11::discoverDevices(registry);
 	IOSurfaceRoot::registerSelf(registry);
+	IOPMrootDomain::registerSelf(registry);
 }
