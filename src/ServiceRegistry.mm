@@ -27,6 +27,8 @@
 #include <cstring>
 #include <vector>
 #include "IOIterator.h"
+#include "IOServiceNotification.h"
+#include <algorithm>
 
 extern "C" {
 #include "iokitmigServer.h"
@@ -38,7 +40,7 @@ ServiceRegistry* ServiceRegistry::instance()
 	return &reg;
 }
 
-IOIterator* ServiceRegistry::iteratorForMatchingServices(NSDictionary* criteria) const
+std::vector<IOObject*> ServiceRegistry::matchingServices(NSDictionary* criteria) const
 {
 	std::vector<IOObject*> matching;
 
@@ -48,7 +50,12 @@ IOIterator* ServiceRegistry::iteratorForMatchingServices(NSDictionary* criteria)
 			matching.push_back(*it);
 	}
 
-	return new IOIterator(matching);
+	return matching;
+}
+
+IOIterator* ServiceRegistry::iteratorForMatchingServices(NSDictionary* criteria) const
+{
+	return new IOIterator(matchingServices(criteria));
 }
 
 IOService* ServiceRegistry::firstMatchingService(NSDictionary* criteria) const
@@ -64,6 +71,40 @@ IOService* ServiceRegistry::firstMatchingService(NSDictionary* criteria) const
 void ServiceRegistry::registerService(IOService* service)
 {
 	m_registeredServices.push_back(service);
+
+	// A notification may be destroyed by its client at any time, but only on
+	// this queue, so the list cannot change while it is walked
+	for (IOServiceNotification* notification : m_notifications)
+	{
+		if (notification->kind() != IOServiceNotification::Terminate)
+			notification->serviceEvent(service);
+	}
+}
+
+void ServiceRegistry::unregisterService(IOService* service)
+{
+	auto it = std::find(m_registeredServices.begin(), m_registeredServices.end(), service);
+	if (it == m_registeredServices.end())
+		return;
+	m_registeredServices.erase(it);
+
+	for (IOServiceNotification* notification : m_notifications)
+	{
+		if (notification->kind() == IOServiceNotification::Terminate)
+			notification->serviceEvent(service);
+		else
+			notification->remove(service);
+	}
+}
+
+void ServiceRegistry::addNotification(IOServiceNotification* notification)
+{
+	m_notifications.push_back(notification);
+}
+
+void ServiceRegistry::removeNotification(IOServiceNotification* notification)
+{
+	m_notifications.remove(notification);
 }
 
 kern_return_t is_io_service_get_matching_services_ool
@@ -171,23 +212,29 @@ kern_return_t is_io_service_add_notification_bin_64
 	if (!criteria)
 		return kIOReturnBadArgument;
 
-	// Services are only registered while iokitd starts, so none is ever
-	// published or terminated later. The notification is an iterator over
-	// the services that match now, which is what the client walks to arm a
-	// publish or match notification; termination notifications start empty.
-	IOIterator* iterator;
+	// The notification is an iterator over the services that match: the ones
+	// registered now (for publish and match notifications, which is what the
+	// client walks to arm it), and the ones that come or go later, announced
+	// on the wake port. Termination notifications start empty.
+	IOServiceNotification::Kind kind;
 	if (!strcmp(notification_type, kIOPublishNotification) ||
-		!strcmp(notification_type, kIOFirstPublishNotification) ||
-		!strcmp(notification_type, kIOMatchedNotification) ||
+		!strcmp(notification_type, kIOFirstPublishNotification))
+		kind = IOServiceNotification::Publish;
+	else if (!strcmp(notification_type, kIOMatchedNotification) ||
 		!strcmp(notification_type, kIOFirstMatchNotification))
-		iterator = ServiceRegistry::instance()->iteratorForMatchingServices(criteria);
+		kind = IOServiceNotification::Match;
 	else
-		iterator = new IOIterator(std::vector<IOObject*>());
-	CFRelease(criteria);
+		kind = IOServiceNotification::Terminate;
 
-	// Nothing is ever sent to the wake port
-	if (MACH_PORT_VALID(wake_port))
-		mach_port_deallocate(mach_task_self(), wake_port);
+	// Takes over the criteria and the wake port right
+	IOServiceNotification* iterator = new IOServiceNotification(kind, criteria, wake_port, reference,
+		std::min<size_t>(referenceCnt * sizeof(io_user_reference_t), sizeof(OSAsyncReference64)));
+
+	if (kind != IOServiceNotification::Terminate)
+	{
+		for (IOObject* service : ServiceRegistry::instance()->matchingServices(criteria))
+			iterator->append(service);
+	}
 
 	*notification = iterator->port();
 	iterator->releaseLater();

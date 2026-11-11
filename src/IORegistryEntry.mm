@@ -122,6 +122,18 @@ bool IORegistryEntry::registerInPlane(const char* plane, const char* pathName, I
 	return true;
 }
 
+void IORegistryEntry::detachFromPlane(const char* plane)
+{
+	auto parents = m_parents.find(plane);
+
+	if (parents != m_parents.end())
+	{
+		for (IORegistryEntry* parent : parents->second)
+			parent->m_children[plane].erase(this);
+		m_parents.erase(parents);
+	}
+}
+
 std::optional<std::string> IORegistryEntry::getPath(const char* plane)
 {
 	std::stack<std::string> components;

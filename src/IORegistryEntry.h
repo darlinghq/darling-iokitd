@@ -33,6 +33,10 @@ public:
 	
 	// Fails if the entry would become its own ancestor
 	bool registerInPlane(const char* plane, const char* pathName, IORegistryEntry* parent);
+
+	// Removes the entry from the plane, from its parents; its own children
+	// stay attached to it.
+	void detachFromPlane(const char* plane);
 protected:
 	// The key is the plane name, e.g. kIOServicePlane (as declared in IOKit/IOKitKeys.h)
 	std::unordered_map<std::string, std::string> m_name;
