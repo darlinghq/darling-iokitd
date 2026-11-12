@@ -44,24 +44,31 @@ NSDictionary* IODisplayConnectX11::getProperties()
 	return m_props;
 }
 
-void IODisplayConnectX11::discoverDevices(ServiceRegistry* targetServiceRegistry)
+// Opens the connection to the X server once; without a server m_display stays NULL
+void IODisplayConnectX11::openDisplay()
+{
+	if (m_display)
+		return;
+
+	m_display = XOpenDisplay(NULL);
+	if (!m_display)
+		m_display = XOpenDisplay(":0");
+}
+
+void IODisplayConnectX11::discoverDevices(ServiceRegistry* targetServiceRegistry, bool publishOutputs)
 {
 	static dispatch_once_t once;
+
+	// The display is needed by other parts of iokitd (EGL, power assertions) even
+	// when the displays themselves come from DRM
+	openDisplay();
+	if (!m_display || !publishOutputs)
+		return;
 
 	dispatch_once(&once, ^{
 		m_root = new IORegistryEntry;
 		m_root->registerInPlane(kIOServicePlane, "X11Display", IORegistryEntry::root());
 	});
-
-	if (!m_display)
-	{
-		m_display = XOpenDisplay(NULL);
-    
-		if (!m_display)
-			m_display = XOpenDisplay(":0");
-		if (!m_display)
-			return;
-	}
 
 	int eventBase, errorBase;
 
@@ -69,22 +76,22 @@ void IODisplayConnectX11::discoverDevices(ServiceRegistry* targetServiceRegistry
 	if (XRRQueryExtension(m_display, &eventBase, &errorBase))
 	{
 		XRRScreenResources *screen = XRRGetScreenResources(m_display, DefaultRootWindow(m_display));
+		if (!screen)
+			return;
 
 		Atom edidAtom = XInternAtom(m_display, "EDID", FALSE);
 
 		for (int i = 0; i < screen->noutput; i++)
 		{
-			bool needFakeEDID = true;
 			XRROutputInfo *oinfo = XRRGetOutputInfo(m_display, screen, screen->outputs[i]);
-			NSMutableDictionary* props = [NSMutableDictionary dictionaryWithCapacity: 6];
+			if (!oinfo)
+				continue;
 
+			NSData* edid = nil;
 			NSString* name = [[NSString alloc] initWithBytes: oinfo->name
 												length: oinfo->nameLen
 												encoding: NSUTF8StringEncoding];
 			[name autorelease];
-
-			[props setObject: @{ @"en_US": name }
-					forKey: @(kDisplayProductName)];
 
 			if (oinfo->crtc)
 			{
@@ -93,64 +100,26 @@ void IODisplayConnectX11::discoverDevices(ServiceRegistry* targetServiceRegistry
 				Atom actualType;
 				unsigned long nitems, bytesAfter;
 				int actualFormat;
-				unsigned char* prop;
+				unsigned char* prop = NULL;
 
 				// Getting the EDID property of various virtual displays succeeds, but returns 0 length data
-				if (XRRGetOutputProperty(m_display, screen->outputs[i], edidAtom, 0, 100, FALSE, FALSE, AnyPropertyType, &actualType, &actualFormat, &nitems, &bytesAfter, &prop) == Success && nitems > 17)
+				if (XRRGetOutputProperty(m_display, screen->outputs[i], edidAtom, 0, 100, FALSE, FALSE, AnyPropertyType, &actualType, &actualFormat, &nitems, &bytesAfter, &prop) == Success && prop)
 				{
-					[props setObject: [NSData dataWithBytes: prop length: nitems]
-							forKey: @(kIODisplayEDIDKey)];
-					
-					uint32_t serial = CFSwapInt32LittleToHost(*(uint32_t*) (&prop[12]));
-					[props setObject: [NSNumber numberWithInt: serial]
-							forKey: @(kDisplaySerialNumber)];
-					
-					uint16_t model = CFSwapInt16LittleToHost(*(uint16_t*) (&prop[10]));
-					[props setObject: [NSNumber numberWithInt: model]
-							forKey: @(kDisplayProductID)];
-					
-					uint32_t vendor = CFSwapInt16BigToHost(*(uint16_t*) (&prop[8]));
-					[props setObject: [NSNumber numberWithInt: vendor]
-							forKey: @(kDisplayVendorID)];
-					
-					int week = prop[16];
-					int year = int(prop[17]) + 1900;
-					[props setObject: [NSNumber numberWithInt: week]
-							forKey: @(kDisplayWeekOfManufacture)];
-					[props setObject: [NSNumber numberWithInt: year]
-							forKey: @(kDisplayYearOfManufacture)];
-
-					needFakeEDID = false;
+					if (nitems > 17)
+						edid = [NSData dataWithBytes: prop length: nitems];
+					XFree(prop);
 				}
 
-				XRRFreeCrtcInfo(crtc);
+				if (crtc)
+					XRRFreeCrtcInfo(crtc);
 			}
 
-			if (needFakeEDID)
-			{
-				// generate a fake EDID, because otherwise IOKitUser will completely disregard our serial here
-				uint8_t fakeEDID[128];
-
-				memset(fakeEDID, 0, sizeof(fakeEDID));
-				memset(fakeEDID+1, 0xff, 6);
-				fakeEDID[12] = i+1;
-
-				uint8_t csum = 0;
-				for (int i = 0; i < sizeof(fakeEDID); i++)
-					csum += fakeEDID[i];
-				fakeEDID[127] = (256 - csum) % 256;
-
-				[props setObject: [NSData dataWithBytes: fakeEDID length: sizeof(fakeEDID)]
-						forKey: @(kIODisplayEDIDKey)];
-
-				[props setObject: [NSNumber numberWithInt: i+1]
-						forKey: @(kDisplaySerialNumber)];
-			}
-
+			// the display's own name when the EDID has one, as for DRM displays
+			NSDictionary* props = makeProperties(name, edid, i, true);
 			IODisplayConnectX11* ioDisplay = new IODisplayConnectX11(i, props);
 			targetServiceRegistry->registerService(ioDisplay);
 			ioDisplay->registerInPlane(kIOServicePlane, oinfo->name, m_root);
-			
+
 			XRRFreeOutputInfo(oinfo);
 		}
 
