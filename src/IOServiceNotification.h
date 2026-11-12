@@ -40,9 +40,10 @@ public:
 	};
 
 	// Takes over the send right to wakePort and the reference to matching.
-	// reference holds referenceSize bytes of the client's async reference.
+	// reference holds referenceSize bytes of the client's async reference, made of
+	// 64-bit words if client64 is set and of 32-bit words otherwise.
 	IOServiceNotification(Kind kind, NSDictionary* matching, mach_port_t wakePort,
-		const void* reference, size_t referenceSize);
+		const void* reference, size_t referenceSize, bool client64);
 	~IOServiceNotification();
 
 	const char* className() const override;
@@ -59,6 +60,7 @@ private:
 	NSDictionary* m_matching;
 	mach_port_t m_wakePort;
 	OSAsyncReference64 m_reference;
+	bool m_client64;
 };
 
 #endif

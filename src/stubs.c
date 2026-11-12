@@ -261,6 +261,22 @@ kern_return_t is_io_async_method_scalarI_structureI
     return KERN_NOT_SUPPORTED;
 }
 
+// Requests of 32-bit clients for this id are decoded by iokitmig32.defs; the
+// 64-bit subsystem only needs the symbol.
+kern_return_t is_io_service_add_interest_notification
+(
+	mach_port_t service,
+	io_name_t type_of_interest,
+	mach_port_t wake_port,
+	io_async_ref_t reference,
+	mach_msg_type_number_t referenceCnt,
+	mach_port_t *notification
+)
+{
+    STUB();
+    return KERN_NOT_SUPPORTED;
+}
+
 kern_return_t is_io_async_method_structureI_structureO
 (
 	mach_port_t connection,

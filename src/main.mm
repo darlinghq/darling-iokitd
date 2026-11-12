@@ -39,6 +39,7 @@
 
 extern "C" {
 #include "iokitmigServer.h"
+#include "iokitDispatch.h"
 #include "powermanagementServer.h"
 }
 
@@ -121,7 +122,7 @@ static boolean_t iokitSaveAuditTrail(mach_msg_header_t *message, mach_msg_header
 {
 	const mach_msg_context_trailer_t* trailer = reinterpret_cast<mach_msg_context_trailer_t*>(reinterpret_cast<char*>(message) + message->msgh_size);
 	audit_token_to_au32(trailer->msgh_audit, nullptr, nullptr, nullptr, nullptr, nullptr, &g_iokitCurrentCallerPID, nullptr, nullptr);
-	return iokit_server(message, reply);
+	return iokitDispatch(message, reply);
 }
 
 static void discoverAllDevices()
