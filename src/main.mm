@@ -30,6 +30,7 @@
 #include "iokitmig.h"
 #include "IOObject.h"
 #include "IODisplayConnectX11.h"
+#include "IOHostGPU.h"
 #include "PowerAssertions.h"
 #include "IOSurfaceRoot.h"
 #include "IOPlatformExpertDevice.h"
@@ -128,6 +129,7 @@ static void discoverAllDevices()
 	IORegistryEntry::root();
 	IOPlatformExpertDevice::registerSelf(registry);
 	IODisplayConnectX11::discoverDevices(registry);
+	IOHostGPU::registerSelf(registry);
 	IOSurfaceRoot::registerSelf(registry);
 	IOPMrootDomain::registerSelf(registry);
 }
