@@ -55,6 +55,7 @@ set(iokitd_sources
 	src/IOInterestNotification.mm
 	src/IOUserClientApple.mm
 	src/IOPlatformExpertDevice.mm
+	src/IOHostGPU.mm
 	${CMAKE_CURRENT_BINARY_DIR}/iokitmigServer.c
 	${CMAKE_CURRENT_BINARY_DIR}/powermanagementServer.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../IOKitUser/IOCFSerialize.c
