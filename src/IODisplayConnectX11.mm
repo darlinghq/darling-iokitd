@@ -114,7 +114,8 @@ void IODisplayConnectX11::discoverDevices(ServiceRegistry* targetServiceRegistry
 					XRRFreeCrtcInfo(crtc);
 			}
 
-			NSDictionary* props = makeProperties(name, edid, i, false);
+			// the display's own name when the EDID has one, as for DRM displays
+			NSDictionary* props = makeProperties(name, edid, i, true);
 			IODisplayConnectX11* ioDisplay = new IODisplayConnectX11(i, props);
 			targetServiceRegistry->registerService(ioDisplay);
 			ioDisplay->registerInPlane(kIOServicePlane, oinfo->name, m_root);
