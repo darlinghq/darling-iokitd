@@ -58,6 +58,7 @@ set(iokitd_sources
 	src/IOServiceNotification.mm
 	src/IOHIDGamepadDevice.mm
 	src/HostGamepad.c
+	src/IOHostGPU.mm
 	${CMAKE_CURRENT_BINARY_DIR}/iokitmigServer.c
 	${CMAKE_CURRENT_BINARY_DIR}/powermanagementServer.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../IOKitUser/IOCFSerialize.c
