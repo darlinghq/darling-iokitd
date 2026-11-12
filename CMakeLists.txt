@@ -55,6 +55,9 @@ set(iokitd_sources
 	src/IOInterestNotification.mm
 	src/IOUserClientApple.mm
 	src/IOPlatformExpertDevice.mm
+	src/IOServiceNotification.mm
+	src/IOHIDGamepadDevice.mm
+	src/HostGamepad.c
 	src/IOHostGPU.mm
 	${CMAKE_CURRENT_BINARY_DIR}/iokitmigServer.c
 	${CMAKE_CURRENT_BINARY_DIR}/powermanagementServer.c

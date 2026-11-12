@@ -21,8 +21,11 @@
 #define IOKITD_REGISTRY_H
 #include "IOService.h"
 #include <list>
+#include <vector>
 #import <Foundation/NSDictionary.h>
 #include "IOIterator.h"
+
+class IOServiceNotification;
 
 class ServiceRegistry
 {
@@ -30,11 +33,21 @@ private:
 	ServiceRegistry() {}
 public:
 	static ServiceRegistry* instance();
+	// Publishes a service: notifies the matching notifications that are armed
 	void registerService(IOService* service);
+	// A service went away (e.g. an unplugged device). Notifies the termination
+	// notifications. The object itself is not freed: clients may still hold
+	// its port, and every call on it fails once it left the registry.
+	void unregisterService(IOService* service);
+
+	void addNotification(IOServiceNotification* notification);
+	void removeNotification(IOServiceNotification* notification);
+	std::vector<IOObject*> matchingServices(NSDictionary* criteria) const;
 	IOIterator* iteratorForMatchingServices(NSDictionary* criteria) const;
 	IOService* firstMatchingService(NSDictionary* criteria) const;
 private:
 	std::list<IOService*> m_registeredServices;
+	std::list<IOServiceNotification*> m_notifications;
 };
 
 #endif

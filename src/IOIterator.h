@@ -31,6 +31,12 @@ public:
 
 	void reset();
 	IOObject* next();
+
+	// Adds an object the client has not seen yet. Objects already returned
+	// by next() stay behind the iteration position.
+	void append(IOObject* object);
+	// Drops an object that was not returned yet; it is gone before the client asks.
+	void remove(IOObject* object);
 private:
 	std::vector<IOObject*> m_objects;
 	int m_pos = 0;

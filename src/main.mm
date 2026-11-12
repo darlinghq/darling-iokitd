@@ -35,6 +35,7 @@
 #include "IOSurfaceRoot.h"
 #include "IOPlatformExpertDevice.h"
 #include "IOPMrootDomain.h"
+#include "IOHIDGamepadDevice.h"
 
 extern "C" {
 #include "iokitmigServer.h"
@@ -108,6 +109,7 @@ int main(int argc, const char** argv)
 	dispatch_resume(pwrMgmtPortSource);
 
 	IOPMrootDomain::instance()->startHostSleepMonitor();
+	IOHIDGamepadDevice::startHostMonitor(ServiceRegistry::instance());
 
 	os_log(OS_LOG_DEFAULT, "iokitd up and running.");
 

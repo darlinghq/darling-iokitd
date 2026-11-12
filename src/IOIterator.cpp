@@ -39,6 +39,23 @@ const char* IOIterator::className() const
 	return "IOUserIterator";
 }
 
+void IOIterator::append(IOObject* object)
+{
+	m_objects.push_back(object);
+}
+
+void IOIterator::remove(IOObject* object)
+{
+	for (size_t i = m_pos; i < m_objects.size(); i++)
+	{
+		if (m_objects[i] == object)
+		{
+			m_objects.erase(m_objects.begin() + i);
+			return;
+		}
+	}
+}
+
 IOObject* IOIterator::next()
 {
 	if (m_pos >= m_objects.size())
