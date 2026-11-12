@@ -1,0 +1,143 @@
+/*
+ This file is part of Darling.
+
+ Copyright (C) 2026 Lubos Dolezel
+
+ Darling is free software: you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation, either version 3 of the License, or
+ (at your option) any later version.
+
+ Darling is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+
+ You should have received a copy of the GNU General Public License
+ along with Darling.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+/*
+ * Requests of 32-bit (i386) clients whose layout differs from the one the
+ * 64-bit server (iokitmig.defs) decodes. A 32-bit client calls the routines
+ * without the _64 suffix, whose asynchronous reference is an array of 32-bit
+ * words; the 64-bit decoding of the same message ids expects 64-bit words and
+ * rejects the request with MIG_BAD_ARGUMENTS. The routines below declare the
+ * 32-bit shape under the same message ids, and every other id is skipped so
+ * that the 64-bit server handles it. iokit32_dispatch() tries this subsystem
+ * first. Routine numbering follows the numbering of the 64-bit subsystem.
+ */
+subsystem iokit32 2800;
+
+#include <mach/std_types.defs>
+#include <mach/mach_types.defs>
+
+import <device/device_types.h>;
+import "iokit32_types.h";
+
+serverprefix is32_;
+
+type io_name_t            = c_string[*:128];
+type io_struct_inband_t   = array[*:4096] of char;
+type io_async_ref32_t     = array[*:8] of natural_t;
+type io_object_t          = mach_port_t
+		ctype: mach_port_t;
+
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+routine io_service_add_interest_notification(
+	    service		: io_object_t;
+	in  type_of_interest	: io_name_t;
+	in  wake_port		: mach_port_make_send_t;
+	in  reference		: io_async_ref32_t;
+	out notification	: io_object_t
+	);
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+skip;
+routine io_service_add_notification_bin(
+	    master_port		: mach_port_t;
+	in  notification_type	: io_name_t;
+	in  matching		: io_struct_inband_t;
+	in  wake_port		: mach_port_make_send_t;
+	in  reference		: io_async_ref32_t;
+	out notification	: io_object_t
+	);
+

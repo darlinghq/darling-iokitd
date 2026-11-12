@@ -30,6 +30,7 @@
 extern "C" {
 #include "iokitmigServer.h"
 }
+#include "NotificationRequests.h"
 
 // The message layout IODispatchCalloutFromMessage() expects: the provider
 // as a port descriptor, followed by the notification header, the client's
@@ -206,7 +207,7 @@ kern_return_t IOInterestNotification::deliver(uint32_t messageType, uint64_t arg
 	return flushMessages();
 }
 
-static kern_return_t addInterestNotification(mach_port_t service, const char* interestType,
+kern_return_t iokitAddInterestNotification(mach_port_t service, const char* interestType,
 	mach_port_t wakePort, const void* reference, size_t referenceSize, bool client64,
 	mach_port_t* notification)
 {
@@ -258,29 +259,6 @@ kern_return_t is_io_service_add_interest_notification_64
 	OSAsyncReference64 zreference = {};
 	std::memcpy(zreference, reference, referenceCnt * sizeof(zreference[0]));
 
-	return addInterestNotification(service, type_of_interest, wake_port, zreference,
+	return iokitAddInterestNotification(service, type_of_interest, wake_port, zreference,
 		sizeof(zreference), true, notification);
-}
-
-kern_return_t is_io_service_add_interest_notification
-(
-	mach_port_t service,
-	io_name_t type_of_interest,
-	mach_port_t wake_port,
-	io_async_ref_t reference,
-	mach_msg_type_number_t referenceCnt,
-	mach_port_t *notification
-)
-{
-	if (referenceCnt > kOSAsyncRefCount)
-	{
-		*notification = MACH_PORT_NULL;
-		return kIOReturnBadArgument;
-	}
-
-	io_async_ref_t zreference = {};
-	std::memcpy(zreference, reference, referenceCnt * sizeof(zreference[0]));
-
-	return addInterestNotification(service, type_of_interest, wake_port, zreference,
-		sizeof(zreference), false, notification);
 }

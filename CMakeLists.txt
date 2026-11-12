@@ -17,6 +17,8 @@ include_directories(
 	${X11_Xrandr_INCLUDE_PATH}
 )
 include_directories(BEFORE ${CMAKE_CURRENT_BINARY_DIR})
+# iokit32_types.h, imported by the generated 32-bit server
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
 # dserver_platform_identity_t, used by libsystem_kernel's __darling_get_platform_identity
 include_directories(${CMAKE_SOURCE_DIR}/src/external/darlingserver/include)
 
@@ -26,6 +28,11 @@ pkg_check_modules(PC_DBUS REQUIRED dbus-1)
 include_directories(${PC_DBUS_INCLUDE_DIRS})
 
 mig(iokitmig.defs)
+# Requests of 32-bit clients (shares its message ids with iokitmig.defs, so no
+# second xtrace library)
+set(MIG_NO_XTRACE 1)
+mig(iokitmig32.defs)
+unset(MIG_NO_XTRACE)
 mig(powermanagement.defs)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
@@ -62,6 +69,8 @@ set(iokitd_sources
 	src/HostGamepad.c
 	src/IOHostGPU.mm
 	${CMAKE_CURRENT_BINARY_DIR}/iokitmigServer.c
+	${CMAKE_CURRENT_BINARY_DIR}/iokitmig32Server.c
+	src/iokitDispatch.cpp
 	${CMAKE_CURRENT_BINARY_DIR}/powermanagementServer.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../IOKitUser/IOCFSerialize.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../IOKitUser/IOCFUnserialize.tab.c

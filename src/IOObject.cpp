@@ -27,6 +27,7 @@
 extern "C" {
 #include "iokitmigServer.h"
 }
+#include "iokitDispatch.h"
 
 std::unordered_map<mach_port_t, IOObject*> IOObject::m_objects;
 
@@ -54,7 +55,7 @@ IOObject::IOObject()
 			[](mach_msg_header_t* request, mach_msg_header_t* reply) -> boolean_t {
 				if (request->msgh_id == MACH_NOTIFY_NO_SENDERS)
 					return IOObject::deathNotify(request, reply);
-				return iokit_server(request, reply);
+				return iokitDispatch(request, reply);
 			});
 	});
 	dispatch_resume(m_dispatchSource);

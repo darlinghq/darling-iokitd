@@ -28,6 +28,7 @@
 #include <vector>
 #include "IOIterator.h"
 #include "IOServiceNotification.h"
+#include "NotificationRequests.h"
 #include <algorithm>
 
 extern "C" {
@@ -122,7 +123,7 @@ kern_return_t is_io_service_get_matching_services_ool
 
 // Unserializes the binary matching dictionary of a request. The caller
 // releases the result.
-static NSDictionary* unserializeMatching(io_struct_inband_t matching, mach_msg_type_number_t matchingCnt)
+static NSDictionary* unserializeMatching(const char* matching, mach_msg_type_number_t matchingCnt)
 {
 	CFStringRef errorString = nullptr;
 	CFTypeRef criteria = IOCFUnserializeBinary(matching, matchingCnt, nullptr, 0, &errorString);
@@ -194,15 +195,15 @@ kern_return_t is_io_service_get_matching_service_bin
 	return kIOReturnSuccess;
 }
 
-kern_return_t is_io_service_add_notification_bin_64
+kern_return_t iokitAddServiceNotification
 (
-	mach_port_t master_port,
-	io_name_t notification_type,
-	io_struct_inband_t matching,
+	const char* notification_type,
+	const char* matching,
 	mach_msg_type_number_t matchingCnt,
 	mach_port_t wake_port,
-	io_async_ref64_t reference,
-	mach_msg_type_number_t referenceCnt,
+	const void* reference,
+	size_t referenceSize,
+	bool client64,
 	mach_port_t *notification
 )
 {
@@ -228,7 +229,7 @@ kern_return_t is_io_service_add_notification_bin_64
 
 	// Takes over the criteria and the wake port right
 	IOServiceNotification* iterator = new IOServiceNotification(kind, criteria, wake_port, reference,
-		std::min<size_t>(referenceCnt * sizeof(io_user_reference_t), sizeof(OSAsyncReference64)));
+		referenceSize, client64);
 
 	if (kind != IOServiceNotification::Terminate)
 	{
@@ -240,6 +241,28 @@ kern_return_t is_io_service_add_notification_bin_64
 	iterator->releaseLater();
 
 	return kIOReturnSuccess;
+}
+
+kern_return_t is_io_service_add_notification_bin_64
+(
+	mach_port_t master_port,
+	io_name_t notification_type,
+	io_struct_inband_t matching,
+	mach_msg_type_number_t matchingCnt,
+	mach_port_t wake_port,
+	io_async_ref64_t reference,
+	mach_msg_type_number_t referenceCnt,
+	mach_port_t *notification
+)
+{
+	if (referenceCnt > kOSAsyncRef64Count)
+	{
+		*notification = MACH_PORT_NULL;
+		return kIOReturnBadArgument;
+	}
+
+	return iokitAddServiceNotification(notification_type, matching, matchingCnt, wake_port,
+		reference, referenceCnt * sizeof(io_user_reference_t), true, notification);
 }
 
 kern_return_t is_io_service_get_matching_services
