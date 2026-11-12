@@ -50,9 +50,8 @@ void IODisplayConnectX11::openDisplay()
 	if (m_display)
 		return;
 
+	// The server named by DISPLAY; with DISPLAY unset there is none
 	m_display = XOpenDisplay(NULL);
-	if (!m_display)
-		m_display = XOpenDisplay(":0");
 }
 
 void IODisplayConnectX11::discoverDevices(ServiceRegistry* targetServiceRegistry, bool publishOutputs)
