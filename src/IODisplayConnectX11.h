@@ -35,12 +35,16 @@ private:
 
 public:
 	~IODisplayConnectX11();
-	static void discoverDevices(ServiceRegistry* targetRegistry);
+	// Connects to the X server if there is one. The outputs of the X server are published
+	// as displays only if publishOutputs is set: that is the fallback for when the host's
+	// DRM connectors give no display.
+	static void discoverDevices(ServiceRegistry* targetRegistry, bool publishOutputs = true);
 	NSDictionary* getProperties() override;
 
-	// TODO: Make the whole display server abstraction nicer?
+	// NULL when there is no X server to connect to
 	static Display* getDisplay() { return m_display; }
 private:
+	static void openDisplay();
 	static Display* m_display;
 	// Index of the corresponding XrandR output
 	int m_index;

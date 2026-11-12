@@ -30,6 +30,7 @@
 #include "iokitmig.h"
 #include "IOObject.h"
 #include "IODisplayConnectX11.h"
+#include "IODisplayConnectDRM.h"
 #include "IOHostGPU.h"
 #include "PowerAssertions.h"
 #include "IOSurfaceRoot.h"
@@ -130,7 +131,11 @@ static void discoverAllDevices()
 	// Trick to make sure the root object gets instantiated first and gets the lowest ID
 	IORegistryEntry::root();
 	IOPlatformExpertDevice::registerSelf(registry);
-	IODisplayConnectX11::discoverDevices(registry);
+	// The connectors of the host's DRM devices are the primary source of displays. XRandR
+	// outputs are published only if DRM shows none (Xvfb, a nested or remote X server), so
+	// that a display is never published twice.
+	size_t drmDisplays = IODisplayConnectDRM::discoverDevices(registry);
+	IODisplayConnectX11::discoverDevices(registry, drmDisplays == 0);
 	IOHostGPU::registerSelf(registry);
 	IOSurfaceRoot::registerSelf(registry);
 	IOPMrootDomain::registerSelf(registry);

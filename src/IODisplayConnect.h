@@ -28,6 +28,13 @@ public:
 	const char* className() const override;
 	NSDictionary* matchingDictionary() override;
 	bool conformsTo(const char* className) override;
+
+	// The properties of a display service, as the display discovery backends publish them.
+	// outputName is the name of the connector or output; it is the product name unless
+	// useEDIDName is set and the EDID names the display. A missing or invalid EDID is replaced
+	// by a made-up one carrying displayIndex (from 0), because IOKitUser disregards a display
+	// that has no EDID with a serial number.
+	static NSDictionary* makeProperties(NSString* outputName, NSData* edid, int displayIndex, bool useEDIDName);
 };
 
 #endif

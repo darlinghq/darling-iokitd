@@ -42,6 +42,8 @@ set(iokitd_sources
 	src/IORegistryEntry.mm
 	src/IODisplayConnect.mm
 	src/IODisplayConnectX11.mm
+	src/IODisplayConnectDRM.mm
+	src/HostDisplay.c
 	src/PowerAssertions.mm
 	src/PowerSources.mm
 	src/PowerAssertionsX11.mm
