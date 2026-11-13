@@ -79,6 +79,9 @@ def emit(fd, events):
     for t, c, v in events:
         os.write(fd, struct.pack("llHHi", 0, 0, t, c, v))
     os.write(fd, struct.pack("llHHi", 0, 0, EV_SYN, 0, 0))
+    # The watcher prints the report once per read; frames written back to back can arrive in one
+    # read and give one report, so each frame gets time to be read on its own.
+    time.sleep(0.1)
 
 if not os.access("/dev/uinput", os.W_OK):
     print("SKIP: /dev/uinput is not writable; only the layout test ran")
