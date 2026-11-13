@@ -32,7 +32,7 @@
 // report descriptor) and holds the current input report, like
 // IOHIDGamepadDevice does for game controllers.
 //
-// Devices come and go: the host monitor looks at /dev/input once a second,
+// Devices come and go: HostInputMonitor looks at /dev/input once a second,
 // publishes the keyboards and mice it can read, and unpublishes them when the
 // node disappears or reading fails. Without permission to read the nodes
 // nothing is published, which is not an error.
@@ -55,8 +55,6 @@ public:
 	void startReading(void (^onGone)(IOHIDInputDevice*));
 	void stopReading();
 
-	// Starts the monitor of the host's keyboards and mice
-	static void startHostMonitor(ServiceRegistry* registry);
 private:
 	struct iokitd_input m_dev;
 	std::vector<uint8_t> m_report;

@@ -31,7 +31,7 @@
 // reads (usage page and usage, vendor and product, transport, location, the
 // report descriptor) and holds the current input report.
 //
-// Controllers come and go: HostGamepadMonitor() looks at /dev/input once a
+// Controllers come and go: HostInputMonitor looks at /dev/input once a
 // second, publishes controllers it can read, and unpublishes them when the
 // node disappears or reading fails. Without permission to read the nodes no
 // controller is published, which is not an error.
@@ -54,8 +54,6 @@ public:
 	void startReading(void (^onGone)(IOHIDGamepadDevice*));
 	void stopReading();
 
-	// Starts the monitor of the host's controllers
-	static void startHostMonitor(ServiceRegistry* registry);
 private:
 	struct iokitd_gamepad m_pad;
 	std::vector<uint8_t> m_report;

@@ -27,10 +27,6 @@
 #include <unistd.h>
 #include <cstdlib>
 #include <cstring>
-#include <map>
-#include <set>
-
-static const char* kHostInputDirectory = "/dev/input";
 
 // The values of IOHIDKeys.h
 static NSString* const kKeyTransport = @"Transport";
@@ -163,98 +159,4 @@ void IOHIDInputDevice::stopReading()
 		close(m_fd);
 		m_fd = -1;
 	}
-}
-
-namespace {
-
-// Paths that were looked at and are neither keyboard nor mouse, with how many
-// times; permissions of a new node (udev) can lag behind its creation
-struct HostMonitor
-{
-	ServiceRegistry* registry;
-	std::map<std::string, IOHIDInputDevice*> devices;
-	std::map<std::string, int> ignored;
-	dispatch_source_t timer;
-
-	void scan();
-	void remove(const std::string& path);
-};
-
-const int kProbeAttempts = 5;
-
-void HostMonitor::remove(const std::string& path)
-{
-	auto it = devices.find(path);
-	if (it == devices.end())
-		return;
-
-	IOHIDInputDevice* device = it->second;
-	devices.erase(it);
-	device->stopReading();
-	device->detachFromPlane(kIOServicePlane);
-	registry->unregisterService(device);
-	os_log(OS_LOG_DEFAULT, "iokitd: input device %{public}s removed", path.c_str());
-}
-
-void HostMonitor::scan()
-{
-	static char paths[64][64];
-	int count = iokitd_input_list(kHostInputDirectory, paths, 64);
-	std::set<std::string> present;
-
-	for (int i = 0; i < count; i++)
-		present.insert(paths[i]);
-
-	for (auto it = devices.begin(); it != devices.end();)
-	{
-		std::string path = (it++)->first;
-		if (!present.count(path))
-			remove(path);
-	}
-	for (auto it = ignored.begin(); it != ignored.end();)
-	{
-		if (!present.count(it->first))
-			it = ignored.erase(it);
-		else
-			++it;
-	}
-
-	for (const std::string& path : present)
-	{
-		if (devices.count(path))
-			continue;
-		auto skip = ignored.find(path);
-		if (skip != ignored.end() && skip->second >= kProbeAttempts)
-			continue;
-
-		struct iokitd_input dev;
-		if (iokitd_input_probe(path.c_str(), &dev) != 0)
-		{
-			ignored[path]++;
-			continue;
-		}
-
-		IOHIDInputDevice* device = new IOHIDInputDevice(dev);
-		devices[path] = device;
-		ignored.erase(path);
-		device->registerInPlane(kIOServicePlane, dev.name[0] ? dev.name : "IOHIDDevice", IORegistryEntry::root());
-		registry->registerService(device);
-		device->startReading(^(IOHIDInputDevice* gone) { remove(gone->path()); });
-		os_log(OS_LOG_DEFAULT, "iokitd: %{public}s %{public}s (%{public}s)",
-			dev.kind == IOKITD_INPUT_KEYBOARD ? "keyboard" : "mouse", path.c_str(), dev.name);
-	}
-}
-
-}
-
-void IOHIDInputDevice::startHostMonitor(ServiceRegistry* registry)
-{
-	static HostMonitor* monitor = new HostMonitor;
-
-	monitor->registry = registry;
-	monitor->scan();
-	monitor->timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
-	dispatch_source_set_timer(monitor->timer, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), NSEC_PER_SEC, NSEC_PER_SEC / 10);
-	dispatch_source_set_event_handler(monitor->timer, ^{ monitor->scan(); });
-	dispatch_resume(monitor->timer);
 }
