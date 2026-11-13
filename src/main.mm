@@ -37,6 +37,7 @@
 #include "IOPlatformExpertDevice.h"
 #include "IOPMrootDomain.h"
 #include "IOHIDGamepadDevice.h"
+#include "IOHIDInputDevice.h"
 
 extern "C" {
 #include "iokitmigServer.h"
@@ -112,6 +113,7 @@ int main(int argc, const char** argv)
 
 	IOPMrootDomain::instance()->startHostSleepMonitor();
 	IOHIDGamepadDevice::startHostMonitor(ServiceRegistry::instance());
+	IOHIDInputDevice::startHostMonitor(ServiceRegistry::instance());
 
 	os_log(OS_LOG_DEFAULT, "iokitd up and running.");
 
