@@ -46,7 +46,7 @@ public:
 	NSDictionary* matchingDictionary() override;
 	NSDictionary* getProperties() override;
 
-	const std::string& path() const { return m_pad.path; }
+	std::string path() const { return m_pad.path; }
 	const struct iokitd_gamepad& description() const { return m_pad; }
 	const std::vector<uint8_t>& report() const { return m_report; }
 
