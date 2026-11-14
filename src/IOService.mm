@@ -45,10 +45,11 @@ bool IOService::matches(NSDictionary* dict)
 
 		// In a matching dictionary, IOProviderClass names a class the service
 		// must be an instance of (or inherit from). In our personality it names
-		// the provider we attach to, so the two can't be compared directly.
+		// the provider we attach to, so the two can't be compared directly. A value that
+// is not a string is skipped, as in XNU's matching.
 		if ([key isEqualToString: @"IOProviderClass"])
 		{
-			if (![expectedValue isKindOfClass:[NSString class]] || !conformsTo([(NSString*) expectedValue UTF8String]))
+			if ([expectedValue isKindOfClass:[NSString class]] && !conformsTo([(NSString*) expectedValue UTF8String]))
 				return false;
 			continue;
 		}
@@ -82,7 +83,7 @@ bool IOService::conformsTo(const char* className)
 {
 	if (strcmp(className, "IOService") == 0)
 		return true;
-	return IOObject::conformsTo(className);
+	return IORegistryEntry::conformsTo(className);
 }
 
 IOReturn IOService::newUserClient(uint32_t type, IOUserClient** client)

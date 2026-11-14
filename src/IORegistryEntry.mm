@@ -70,6 +70,13 @@ const char* IORegistryEntry::className() const
 	return "IORegistryEntry";
 }
 
+bool IORegistryEntry::conformsTo(const char* className)
+{
+	if (strcmp(className, "IORegistryEntry") == 0)
+		return true;
+	return IOObject::conformsTo(className);
+}
+
 std::string_view IORegistryEntry::getPathName(const char* plane)
 {
 	auto it = m_name.find(plane);

@@ -17,6 +17,7 @@ public:
 	virtual NSDictionary* getProperties();
 
 	const char* className() const override;
+	bool conformsTo(const char* className) override;
 
 	std::string_view getPathName(const char* plane);
 	// Fails if the entry is not attached to the root in this plane
