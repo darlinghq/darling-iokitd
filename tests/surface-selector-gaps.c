@@ -13,19 +13,20 @@
 //     selector 3 (unlock, struct in) both reach their stubs, KERN_NOT_SUPPORTED; with the first entry reused for
 //     both, selector 3 would be dispatched with selector 1's argument shape and answer something else;
 //   - the service can still be found and opened again.
-// Prints PASS or the first FAIL; exit status 0 on PASS. Build as get-matching-service.c, without RAW_MIG.
+// Prints PASS or the first FAIL; exit status 0 on PASS. Links against Darling's IOKit and CoreFoundation.
 #include <mach/mach.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 
-typedef mach_port_t io_object_t, io_service_t, io_connect_t;
+typedef mach_port_t io_object_t, io_iterator_t, io_service_t, io_connect_t;
 
 #define kIOReturnUnsupported ((kern_return_t)0xe00002c7)
 
 extern kern_return_t IOMasterPort(mach_port_t, mach_port_t*);
 extern void* IOServiceMatching(const char*);
-extern io_service_t IOServiceGetMatchingService(mach_port_t, void*);
+extern kern_return_t IOServiceGetMatchingServices(mach_port_t, void*, io_iterator_t*);
+extern io_object_t IOIteratorNext(io_iterator_t);
 extern kern_return_t IOObjectRelease(io_object_t);
 extern kern_return_t IOServiceOpen(io_service_t, task_t, uint32_t, io_connect_t*);
 extern kern_return_t IOServiceClose(io_connect_t);
@@ -41,7 +42,12 @@ static void expect_kr(kern_return_t got, kern_return_t want, const char* what)
 
 static io_connect_t open_surface(mach_port_t master, io_service_t* service)
 {
-	*service = IOServiceGetMatchingService(master, IOServiceMatching("IOSurfaceRoot"));
+	io_iterator_t iter = MACH_PORT_NULL;
+	*service = MACH_PORT_NULL;
+	if (IOServiceGetMatchingServices(master, IOServiceMatching("IOSurfaceRoot"), &iter) == KERN_SUCCESS && MACH_PORT_VALID(iter)) {
+		*service = IOIteratorNext(iter);
+		IOObjectRelease(iter);
+	}
 	if (!MACH_PORT_VALID(*service)) {
 		printf("FAIL: IOSurfaceRoot not found\n");
 		exit(1);
