@@ -22,7 +22,12 @@
 #include <stdarg.h>
 #include <string>
 #include <bsm/libbsm.h>
+#include <IOKit/IOReturn.h>
 #include "iokitDispatch.h"
+
+extern "C" {
+#include "iokitmigServer.h"
+}
 
 pid_t g_iokitCurrentCallerPID;
 
@@ -48,4 +53,16 @@ boolean_t iokitSaveAuditTrail(mach_msg_header_t *message, mach_msg_header_t *rep
 	const mach_msg_context_trailer_t* trailer = reinterpret_cast<mach_msg_context_trailer_t*>(reinterpret_cast<char*>(message) + message->msgh_size);
 	audit_token_to_au32(trailer->msgh_audit, nullptr, nullptr, nullptr, nullptr, nullptr, &g_iokitCurrentCallerPID, nullptr, nullptr);
 	return iokitDispatch(message, reply);
+}
+
+// IOKit sends the binary forms of its requests (io_service_add_notification_bin and friends) only when the server
+// reports 20140421 or later; the string forms are unsupported, as in XNU.
+kern_return_t is_io_server_version
+(
+	mach_port_t master_port,
+	uint64_t *version
+)
+{
+	*version = IOKIT_SERVER_VERSION;
+	return kIOReturnSuccess;
 }

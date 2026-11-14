@@ -571,16 +571,6 @@ kern_return_t is_io_service_set_authorization_id
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_server_version
-(
-	mach_port_t master_port,
-	uint64_t *version
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
 
 kern_return_t is_io_service_match_property_table_bin
 (
