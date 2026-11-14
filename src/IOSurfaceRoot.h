@@ -53,6 +53,7 @@ public:
 	const char* className() const override;
 	NSDictionary* matchingDictionary() override;
 	IOExternalMethod *getExternalMethodForIndex(UInt32 index) override;
+	IOReturn newUserClient(uint32_t type, IOUserClient** client) override;
 	static IOSurfaceRoot* instance();
 	static void registerSelf(ServiceRegistry* targetServiceRegistry);
 private:
