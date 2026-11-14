@@ -31,5 +31,8 @@ extern mach_port_t g_masterPort;
 // iokitd calls only - not valid for powerd!
 extern pid_t g_iokitCurrentCallerPID;
 
+// The MIG server for every iokit request, master port or object port: records the sender's pid first.
+boolean_t iokitSaveAuditTrail(mach_msg_header_t *message, mach_msg_header_t *reply);
+
 #endif
 

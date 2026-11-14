@@ -21,6 +21,8 @@
 #include <stdexcept>
 #include <stdarg.h>
 #include <string>
+#include <bsm/libbsm.h>
+#include "iokitDispatch.h"
 
 pid_t g_iokitCurrentCallerPID;
 
@@ -39,4 +41,11 @@ void throwCFStringException(CFStringRef format, ...)
 	CFRelease(text);
 
 	throw std::runtime_error(str);
+}
+
+boolean_t iokitSaveAuditTrail(mach_msg_header_t *message, mach_msg_header_t *reply)
+{
+	const mach_msg_context_trailer_t* trailer = reinterpret_cast<mach_msg_context_trailer_t*>(reinterpret_cast<char*>(message) + message->msgh_size);
+	audit_token_to_au32(trailer->msgh_audit, nullptr, nullptr, nullptr, nullptr, nullptr, &g_iokitCurrentCallerPID, nullptr, nullptr);
+	return iokitDispatch(message, reply);
 }
