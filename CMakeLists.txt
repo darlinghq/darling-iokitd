@@ -66,7 +66,10 @@ set(iokitd_sources
 	src/IOPlatformExpertDevice.mm
 	src/IOServiceNotification.mm
 	src/IOHIDGamepadDevice.mm
+	src/IOHIDInputDevice.mm
 	src/HostGamepad.c
+	src/HostInput.c
+	src/HostInputMonitor.mm
 	src/IOHostGPU.mm
 	${CMAKE_CURRENT_BINARY_DIR}/iokitmigServer.c
 	${CMAKE_CURRENT_BINARY_DIR}/iokitmig32Server.c
