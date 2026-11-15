@@ -55,7 +55,7 @@ IOObject::IOObject()
 			[](mach_msg_header_t* request, mach_msg_header_t* reply) -> boolean_t {
 				if (request->msgh_id == MACH_NOTIFY_NO_SENDERS)
 					return IOObject::deathNotify(request, reply);
-				return iokitDispatch(request, reply);
+				return iokitSaveAuditTrail(request, reply);
 			});
 	});
 	dispatch_resume(m_dispatchSource);

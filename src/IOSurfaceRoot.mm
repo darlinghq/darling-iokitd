@@ -119,7 +119,9 @@ NSDictionary* IOSurfaceRoot::matchingDictionary()
 
 IOExternalMethod *IOSurfaceRoot::getExternalMethodForIndex(UInt32 index)
 {
-	static const IOExternalMethod methods[] = {
+	// Not const: each entry is bound to this object when it is returned. Selectors the table skips (the enum in
+	// IOSurfacePriv.h has gaps and more selectors than iokitd implements) have no func.
+	static IOExternalMethod methods[] = {
 		[kIOSurfaceMethodCreate] = {
 			.func = IOMethod(&IOSurfaceRoot::createSurface),
 			.flags = kIOUCStructIStructO,
@@ -178,12 +180,11 @@ IOExternalMethod *IOSurfaceRoot::getExternalMethodForIndex(UInt32 index)
 
 	registerCaller();
 
-	if (index >= sizeof(methods)/sizeof(IOExternalMethod))
+	if (index >= sizeof(methods)/sizeof(IOExternalMethod) || !methods[index].func)
 		return nullptr;
 
-	static IOExternalMethod method = methods[index];
-	method.object = this;
-	return &method;
+	methods[index].object = this;
+	return &methods[index];
 }
 
 IOReturn IOSurfaceRoot::createSurface(const void* inputData, void* outputData, IOByteCount inputCount, IOByteCount* outputCount)
