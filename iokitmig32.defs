@@ -39,6 +39,7 @@ serverprefix is32_;
 
 type io_name_t            = c_string[*:128];
 type io_struct_inband_t   = array[*:4096] of char;
+type io_buf_ptr_t         = ^array[] of MACH_MSG_TYPE_INTEGER_8;
 type io_async_ref32_t     = array[*:8] of natural_t;
 type io_object_t          = mach_port_t
 		ctype: mach_port_t;
@@ -108,7 +109,15 @@ skip;
 skip;
 skip;
 skip;
-skip;
+routine io_service_add_notification_ool(
+	    master_port		: mach_port_t;
+	in  notification_type	: io_name_t;
+	in  matching		: io_buf_ptr_t, physicalcopy;
+	in  wake_port		: mach_port_make_send_t;
+	in  reference		: io_async_ref32_t;
+	out result		: kern_return_t;
+	out notification	: io_object_t
+	);
 skip;
 skip;
 skip;
