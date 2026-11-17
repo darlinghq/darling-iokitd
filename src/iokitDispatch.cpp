@@ -63,6 +63,27 @@ kern_return_t is32_io_service_add_notification_bin
 		zreference, sizeof(zreference), false, notification);
 }
 
+kern_return_t is32_io_service_add_notification_ool
+(
+	mach_port_t master_port,
+	io_name_t notification_type,
+	io_buf_ptr_t matching,
+	mach_msg_type_number_t matchingCnt,
+	mach_port_t wake_port,
+	io_async_ref32_t reference,
+	mach_msg_type_number_t referenceCnt,
+	kern_return_t *result,
+	mach_port_t *notification
+)
+{
+	// The MIG stub has refused a reference longer than the array before this runs.
+	OSAsyncReference zreference = {};
+	std::memcpy(zreference, reference, referenceCnt * sizeof(zreference[0]));
+
+	return iokitAddServiceNotificationOutOfLine(notification_type, matching, matchingCnt, wake_port,
+		zreference, sizeof(zreference), false, result, notification);
+}
+
 kern_return_t is32_io_service_add_interest_notification
 (
 	mach_port_t service,

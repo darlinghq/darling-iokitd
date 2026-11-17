@@ -29,6 +29,13 @@ kern_return_t iokitAddServiceNotification(const char* notificationType, const ch
 	mach_msg_type_number_t matchingCnt, mach_port_t wakePort, const void* reference,
 	size_t referenceSize, bool client64, mach_port_t* notification);
 
+// The out-of-line form: the matching dictionary arrives in a buffer of the request, which this frees.
+// The outcome of a well formed request is in *result and the routine itself succeeds; a failed request
+// drops the wake port right.
+kern_return_t iokitAddServiceNotificationOutOfLine(const char* notificationType, char* matching,
+	mach_msg_type_number_t matchingCnt, mach_port_t wakePort, const void* reference,
+	size_t referenceSize, bool client64, kern_return_t* result, mach_port_t* notification);
+
 kern_return_t iokitAddInterestNotification(mach_port_t service, const char* interestType,
 	mach_port_t wakePort, const void* reference, size_t referenceSize, bool client64,
 	mach_port_t* notification);
