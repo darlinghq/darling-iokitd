@@ -22,6 +22,8 @@
 #include <liblaunch/bootstrap.h>
 #include <dispatch/dispatch.h>
 #include <dispatch/private.h>
+#include <mach/mach.h>
+#include <mach/host_special_ports.h>
 #include <IOKit/IOKitKeys.h>
 #include <IOKit/pwr_mgt/IOPMLibPrivate.h>
 #include <bsm/libbsm.h>
@@ -61,6 +63,14 @@ int main(int argc, const char** argv)
 		os_log_error(OS_LOG_DEFAULT, "%d bootstrap_check_in(%s) failed with error %d", getpid(), SERVICE_NAME, ret);
 		return 1;
 	}
+
+	// Publish the port as the host's IO main port, so that host_get_io_main() and host_get_io_master()
+	// return it. A restarted iokitd replaces the previous registration.
+	ret = mach_port_insert_right(mach_task_self(), g_masterPort, g_masterPort, MACH_MSG_TYPE_MAKE_SEND);
+	if (ret == KERN_SUCCESS)
+		ret = host_set_special_port(mach_host_self(), HOST_IO_MASTER_PORT, g_masterPort);
+	if (ret != KERN_SUCCESS)
+		os_log_error(OS_LOG_DEFAULT, "%d registering the IO main port failed with error %d", getpid(), ret);
 
 	ret = bootstrap_check_in(bootstrap_port, kIOPMServerBootstrapName, &g_powerManagementPort);
 
