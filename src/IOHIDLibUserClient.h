@@ -121,21 +121,33 @@ struct IOHIDLibElementValue
 enum {
 	kIOHIDLibTypeInputMisc = 1,
 	kIOHIDLibTypeInputButton = 2,
+	kIOHIDLibTypeOutput = 129,
+	kIOHIDLibTypeFeature = 257,
 	kIOHIDLibTypeCollection = 513,
 };
 enum {
+	kIOHIDLibCollectionPhysical = 0,
 	kIOHIDLibCollectionApplication = 1,
+	kIOHIDLibCollectionLogical = 2,
 };
 enum {
 	kIOHIDLibFlagsVariable = 0x02,
+	kIOHIDLibFlagsRelative = 0x04,
 	kIOHIDLibFlagsNullState = 0x40,
 };
 
-// An element of a device with the position of its value in the input report
+// Report types of IOHIDDeviceSetReport and GetReport
+enum {
+	kIOHIDLibReportInput = 0,
+	kIOHIDLibReportOutput = 1,
+	kIOHIDLibReportFeature = 2,
+};
+
+// An element of a device with the position of its value in its report
 struct IOHIDElementDescription
 {
 	IOHIDLibElement wire;
-	uint32_t bitOffset = 0;  // of the first value, in the input report (without report ID)
+	uint32_t bitOffset = 0;  // of the first value, in the report (input or output as the type says; without report ID)
 	bool reportHandler = false;
 };
 
@@ -152,6 +164,21 @@ public:
 	// handler (reportHandler false) come with all of their cookies.
 	virtual const std::vector<IOHIDElementDescription>& hidElements() const = 0;
 	virtual const std::vector<uint8_t>& hidReport() const = 0;
+
+	// The report ID of the input report, 0 if the device has none. The report
+	// of hidReport() is without it; clients receive it with the ID in front.
+	virtual uint32_t hidInputReportID() const { return 0; }
+
+	// The output report with that ID as last sent (without the ID), or null
+	// if the device has no such output report. Output elements read from it.
+	virtual const std::vector<uint8_t>* hidOutputReport(uint32_t reportID) const { return nullptr; }
+
+	// IOHIDDeviceSetReport for an output report (data without the report ID,
+	// as long as the report). The device updates what hidOutputReport() returns.
+	virtual IOReturn hidSetReport(uint32_t type, uint32_t reportID, const uint8_t* data, size_t length)
+	{
+		return kIOReturnUnsupported;
+	}
 
 	void addHIDClient(IOHIDLibUserClient* client);
 	void removeHIDClient(IOHIDLibUserClient* client);
@@ -198,6 +225,10 @@ private:
 	IOReturn editQueue(uint32_t selector, IOExternalMethodArguments* arguments);
 	IOReturn startStopQueue(uint32_t selector, IOExternalMethodArguments* arguments);
 	IOReturn getReport(IOExternalMethodArguments* arguments);
+	IOReturn setReport(IOExternalMethodArguments* arguments);
+	IOReturn postElementValues(IOExternalMethodArguments* arguments);
+	const std::vector<uint8_t>& reportOf(const IOHIDElementDescription& e) const;
+	std::vector<uint8_t> inputReportWithID() const;
 
 	void enqueue(Queue& queue, uint32_t cookie, uint64_t timestamp, uint32_t generation, const void* bytes, size_t length, uint32_t flags);
 	void freeQueue(Queue& queue);

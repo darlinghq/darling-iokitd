@@ -52,6 +52,9 @@ public:
 	// IOHIDReportDevice
 	const std::vector<IOHIDElementDescription>& hidElements() const override { return m_elements; }
 	const std::vector<uint8_t>& hidReport() const override { return m_report; }
+	uint32_t hidInputReportID() const override { return m_pad.input_report_id; }
+	const std::vector<uint8_t>* hidOutputReport(uint32_t reportID) const override;
+	IOReturn hidSetReport(uint32_t type, uint32_t reportID, const uint8_t* data, size_t length) override;
 
 	std::string path() const { return m_pad.path; }
 	const struct iokitd_gamepad& description() const { return m_pad; }
@@ -64,6 +67,8 @@ public:
 private:
 	struct iokitd_gamepad m_pad;
 	std::vector<uint8_t> m_report;
+	std::vector<uint8_t> m_output;   // the output report last sent, without its ID
+	int m_effect = -1;               // the rumble effect uploaded to the node
 	std::vector<IOHIDElementDescription> m_elements;
 	NSDictionary* m_properties;
 	int m_fd = -1;

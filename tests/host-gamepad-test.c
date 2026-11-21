@@ -183,6 +183,70 @@ static int layout(void)
 	CHECK(iokitd_gamepad_apply_event(&pad, report, 3, 2, 255) == 1);
 	CHECK(report[4] == 0xff);
 
+	/* A controller that can rumble: its input report has ID 1 and it has the output report of its layout */
+	fill_standard(&pad);
+	pad.has_rumble = 1;
+	pad.input_report_id = 1;
+	pad.output_kind = IOKITD_GAMEPAD_OUTPUT_XBOX;
+	pad.output_report_id = 3;
+	pad.output_size = 8;
+	static const uint8_t xbox_output[] = {
+		0x05, 0x0f, 0x09, 0x21, 0xa1, 0x02, 0x85, 0x03,
+		0x0a, 0x97, 0x00, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x04, 0x91, 0x02,
+		0x75, 0x01, 0x95, 0x04, 0x91, 0x03,
+		0x09, 0x70, 0x25, 0x64, 0x75, 0x08, 0x95, 0x04, 0x91, 0x02,
+		0x09, 0x50, 0x26, 0xff, 0x00, 0x66, 0x01, 0x10, 0x55, 0x0e, 0x95, 0x01, 0x91, 0x02,
+		0x0a, 0xa7, 0x00, 0x65, 0x00, 0x55, 0x00, 0x91, 0x02,
+		0x09, 0x7c, 0x91, 0x02,
+		0xc0,
+		0xc0,
+	};
+	length = iokitd_gamepad_report_descriptor(&pad, descriptor, sizeof(descriptor));
+	CHECK(length == (int) (sizeof(standard) + 2 + sizeof(xbox_output) - 1));
+	CHECK(descriptor[6] == 0x85 && descriptor[7] == 0x01);
+	CHECK(length > (int) sizeof(xbox_output) && memcmp(descriptor + length - sizeof(xbox_output), xbox_output, sizeof(xbox_output)) == 0);
+
+	struct iokitd_rumble rumble;
+	/* enable bit 0 is the weak motor, bit 1 the strong one; magnitudes 0 .. 100 at indices 3 and 2;
+	 * duration 10 ms units times the loop count */
+	static const uint8_t play[8] = { 0x03, 0, 0, 50, 100, 20, 5, 2 };
+	CHECK(iokitd_gamepad_decode_output(&pad, play, 8, &rumble) == 1);
+	CHECK(rumble.strong == 32767 && rumble.weak == 65535 && rumble.length_ms == 400 && rumble.delay_ms == 50);
+	static const uint8_t strong_only[8] = { 0x02, 0, 0, 100, 100, 0, 0, 0 };
+	CHECK(iokitd_gamepad_decode_output(&pad, strong_only, 8, &rumble) == 1);
+	CHECK(rumble.strong == 65535 && rumble.weak == 0 && rumble.length_ms == 0);
+	static const uint8_t none_enabled[8] = { 0x00, 0, 0, 100, 100, 0, 0, 0 };
+	CHECK(iokitd_gamepad_decode_output(&pad, none_enabled, 8, &rumble) == 1);
+	CHECK(rumble.strong == 0 && rumble.weak == 0);
+	CHECK(iokitd_gamepad_decode_output(&pad, play, 9, &rumble) == -1);   /* longer than the report */
+
+	/* DualShock 4: report 5 (31 bytes), 17 (77 bytes) on Bluetooth; flag bit 0 enables rumble */
+	fill_playstation(&pad);
+	pad.has_rumble = 1;
+	pad.input_report_id = 1;
+	pad.output_kind = IOKITD_GAMEPAD_OUTPUT_DUALSHOCK;
+	pad.output_report_id = 5;
+	pad.output_size = 31;
+	static const uint8_t ds4_output[] = {
+		0x06, 0x00, 0xff, 0x09, 0x22, 0x85, 0x05, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x1f, 0x91, 0x02,
+		0xc0,
+	};
+	length = iokitd_gamepad_report_descriptor(&pad, descriptor, sizeof(descriptor));
+	CHECK(length > (int) sizeof(ds4_output) && memcmp(descriptor + length - sizeof(ds4_output), ds4_output, sizeof(ds4_output)) == 0);
+	uint8_t usb[31] = { 0x01, 0, 0, 0x80, 0xff };                        /* right (weak) 0x80, left (strong) 0xff */
+	CHECK(iokitd_gamepad_decode_output(&pad, usb, 31, &rumble) == 1);
+	CHECK(rumble.weak == 0x8080 && rumble.strong == 0xffff);
+	usb[0] = 0x02;                                                      /* only the light bar */
+	CHECK(iokitd_gamepad_decode_output(&pad, usb, 31, &rumble) == 0);
+	pad.output_report_id = 0x11;
+	pad.output_size = 77;
+	uint8_t bluetooth[77] = { 0xc0, 0, 0x01, 0, 0, 0x10, 0x20 };         /* two bytes before the shared part */
+	CHECK(iokitd_gamepad_decode_output(&pad, bluetooth, 77, &rumble) == 1);
+	CHECK(rumble.weak == 0x1010 && rumble.strong == 0x2020);
+	CHECK(iokitd_gamepad_decode_output(&pad, bluetooth, 78, &rumble) == -1);
+	fill_standard(&pad);                                                /* no rumble: no output report */
+	CHECK(iokitd_gamepad_decode_output(&pad, play, 8, &rumble) == -1);
+
 	printf(failures ? "layout: FAILED\n" : "layout: ok\n");
 	return failures != 0;
 }

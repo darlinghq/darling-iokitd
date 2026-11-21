@@ -49,6 +49,12 @@
  * signed byte, if the node has one. Motion is the sum over one evdev event
  * frame (up to SYN_REPORT); the next frame starts from zero motion, and the
  * stored report keeps the last frame's motion until then.
+ *
+ * LEDs. A keyboard that has the evdev EV_LED events also has an output
+ * report (no report ID, one byte, LEDs page 0x08): bit n is usage n + 1, so
+ * bit 0 Num Lock, 1 Caps Lock, 2 Scroll Lock, 3 Compose, 4 Kana, in the
+ * order of the evdev LED codes (LED_NUML ...). The upper three bits are
+ * padding. Setting the report writes the five LED events to the node.
  */
 
 #ifndef IOKITD_HOST_INPUT_H
@@ -69,6 +75,7 @@ enum iokitd_input_kind
 
 #define IOKITD_INPUT_MAX_REPORT 32
 #define IOKITD_KEYBOARD_REPORT_SIZE 15
+#define IOKITD_KEYBOARD_LED_COUNT 5
 #define IOKITD_KEYBOARD_FIRST_USAGE 0x04
 #define IOKITD_KEYBOARD_LAST_USAGE 0x73
 
@@ -80,6 +87,9 @@ struct iokitd_input
 	uint16_t bustype, vendor, product, version;
 
 	int kind;             /* enum iokitd_input_kind */
+
+	/* keyboard */
+	int has_leds;         /* EV_LED: the output report below exists */
 
 	/* mouse */
 	int button_count;     /* 1 .. 5 */
@@ -100,7 +110,7 @@ int iokitd_input_probe(const char* path, struct iokitd_input* dev);
 /* The evdev nodes under directory, as iokitd_gamepad_list() */
 int iokitd_input_list(const char* directory, char paths[][64], int max);
 
-/* Opens a node for reading events: non-blocking, close-on-exec */
+/* Opens a node for reading events (and writing LEDs if it may be written): non-blocking, close-on-exec */
 int iokitd_input_open(const char* path);
 
 /*
@@ -130,6 +140,15 @@ int iokitd_input_apply_event(const struct iokitd_input* dev, uint8_t* report,
 
 /* Writes the HID report descriptor. Returns its length, or -1 if size is too small. */
 int iokitd_input_report_descriptor(const struct iokitd_input* dev, uint8_t* out, size_t size);
+
+/* The LEDs that are lit now, bit n for LED n of the output report, or 0 if unknown */
+uint8_t iokitd_input_led_state(int fd);
+
+/*
+ * Sets the LEDs of a keyboard to the bits of the output report. Returns 0,
+ * or -1 with errno set (EBADF when the node was opened read-only).
+ */
+int iokitd_input_set_leds(int fd, uint8_t leds);
 
 /* The Keyboard page usage of an evdev key code, or 0 if it has none */
 uint16_t iokitd_input_keyboard_usage(int code);
