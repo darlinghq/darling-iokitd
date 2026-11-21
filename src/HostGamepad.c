@@ -52,6 +52,18 @@
 
 #define BTN_JOYSTICK 0x120
 #define BTN_GAMEPAD 0x130
+#define BTN_SOUTH 0x130
+#define BTN_EAST 0x131
+#define BTN_NORTH 0x133
+#define BTN_WEST 0x134
+#define BTN_TL 0x136
+#define BTN_TR 0x137
+#define BTN_TL2 0x138
+#define BTN_TR2 0x139
+#define BTN_SELECT 0x13a
+#define BTN_START 0x13b
+#define BTN_MODE 0x13c
+#define BTN_THUMBL 0x13d
 #define BTN_THUMBR 0x13e
 #define BTN_TOUCH 0x14a
 #define BTN_DPAD_UP 0x220
@@ -98,60 +110,204 @@ static void copy_string(char* to, size_t size, const char* from)
 	snprintf(to, size, "%s", from);
 }
 
-/* The Button page usage of a key code, or 0 if it is not a controller button */
-static uint16_t button_usage(int code)
+#define VENDOR_SONY 0x054c
+
+/* The DualShock 4 (USB, Bluetooth, the wireless adapter) */
+static int is_playstation_pad(uint16_t vendor, uint16_t product)
 {
-	if (code >= BTN_GAMEPAD && code <= BTN_THUMBR)
-		return code - BTN_GAMEPAD + 1;
-	if (code >= BTN_DPAD_UP && code <= BTN_DPAD_RIGHT)
-		return code - BTN_DPAD_UP + 16;
-	if (code >= BTN_JOYSTICK && code < BTN_GAMEPAD)
-		return code - BTN_JOYSTICK + 20;
+	return vendor == VENDOR_SONY && (product == 0x05c4 || product == 0x09cc || product == 0x0ba0);
+}
+
+/*
+ * The fixed Button page usage of a key code in a layout, or 0 if the layout
+ * gives it none. fixed_usages is how many usages the layout declares at
+ * least (the extras follow them).
+ */
+static uint16_t button_usage(int layout, int code, int* fixed_usages)
+{
+	switch (layout)
+	{
+		case IOKITD_GAMEPAD_LAYOUT_PLAYSTATION:
+			*fixed_usages = 14;
+			switch (code)
+			{
+				case BTN_WEST: return 1;
+				case BTN_SOUTH: return 2;
+				case BTN_EAST: return 3;
+				case BTN_NORTH: return 4;
+				case BTN_TL: return 5;
+				case BTN_TR: return 6;
+				case BTN_TL2: return 7;
+				case BTN_TR2: return 8;
+				case BTN_SELECT: return 9;
+				case BTN_START: return 10;
+				case BTN_THUMBL: return 11;
+				case BTN_THUMBR: return 12;
+				case BTN_MODE: return 13;
+			}
+			return 0;
+		case IOKITD_GAMEPAD_LAYOUT_STANDARD:
+			*fixed_usages = 15;
+			return (code >= BTN_GAMEPAD && code <= BTN_THUMBR) ? code - BTN_GAMEPAD + 1 : 0;
+		default:
+			*fixed_usages = 0;
+			return (code >= BTN_JOYSTICK && code < BTN_GAMEPAD) ? code - BTN_JOYSTICK + 1 : 0;
+	}
+}
+
+/* Whether a key code is one that is published as a controller button at all */
+static int is_controller_button(int code)
+{
+	return (code >= BTN_JOYSTICK && code <= BTN_THUMBR) || (code >= BTN_DPAD_UP && code <= BTN_DPAD_RIGHT);
+}
+
+/* The trigger roles of the gamepad layouts */
+enum { NOT_A_TRIGGER, LEFT_TRIGGER, RIGHT_TRIGGER };
+
+/*
+ * The usage page and usage of an absolute axis in a layout, or 0 if it is
+ * not mapped (the hat is separate). right_stick_rxry says whether ABS_RX and
+ * ABS_RY (rather than ABS_Z and ABS_RZ) are the right stick of a gamepad.
+ */
+static int axis_usage(int layout, int right_stick_rxry, int code, uint16_t* page, uint16_t* usage)
+{
+	*page = 0x01;
+	if (layout == IOKITD_GAMEPAD_LAYOUT_JOYSTICK)
+	{
+		if (code >= ABS_X && code <= ABS_RZ)
+		{
+			*usage = 0x30 + code;
+			return 1;
+		}
+	}
+	else
+	{
+		int trigger = NOT_A_TRIGGER;
+
+		switch (code)
+		{
+			case ABS_X: *usage = 0x30; return 1;
+			case ABS_Y: *usage = 0x31; return 1;
+			case ABS_RX: if (right_stick_rxry) { *usage = 0x32; return 1; } break;
+			case ABS_RY: if (right_stick_rxry) { *usage = 0x35; return 1; } break;
+			case ABS_Z:
+				if (right_stick_rxry) trigger = LEFT_TRIGGER; else { *usage = 0x32; return 1; }
+				break;
+			case ABS_RZ:
+				if (right_stick_rxry) trigger = RIGHT_TRIGGER; else { *usage = 0x35; return 1; }
+				break;
+			case ABS_BRAKE: trigger = LEFT_TRIGGER; break;
+			case ABS_GAS: trigger = RIGHT_TRIGGER; break;
+		}
+		if (trigger != NOT_A_TRIGGER)
+		{
+			if (layout == IOKITD_GAMEPAD_LAYOUT_PLAYSTATION)
+			{
+				*usage = trigger == LEFT_TRIGGER ? 0x33 : 0x34;
+			}
+			else
+			{
+				*page = 0x02;
+				*usage = trigger == LEFT_TRIGGER ? 0xc5 : 0xc4;
+			}
+			return 1;
+		}
+	}
+
+	switch (code)
+	{
+		case ABS_THROTTLE: *page = 0x02; *usage = 0xbb; return 1;
+		case ABS_RUDDER: *page = 0x02; *usage = 0xba; return 1;
+	}
+	if (layout == IOKITD_GAMEPAD_LAYOUT_JOYSTICK)
+	{
+		switch (code)
+		{
+			case ABS_GAS: *page = 0x02; *usage = 0xc4; return 1;
+			case ABS_BRAKE: *page = 0x02; *usage = 0xc5; return 1;
+		}
+	}
 	return 0;
 }
 
-/* The usage page and usage of an absolute axis, or 0 if it is not mapped (the hat is separate) */
-static int axis_usage(int code, uint16_t* page, uint16_t* usage)
+/* The order of axes within a layout's report: the sticks first, then the triggers and the rest */
+static int axis_rank(const struct iokitd_gamepad_axis* a)
 {
-	switch (code)
+	if (a->usage_page == 0x01)
 	{
-		case ABS_X: case ABS_Y: case ABS_Z: case ABS_RX: case ABS_RY: case ABS_RZ:
-			*page = 0x01;
-			*usage = 0x30 + code;
-			return 1;
-		case ABS_THROTTLE: *page = 0x02; *usage = 0xbb; return 1;
-		case ABS_RUDDER: *page = 0x02; *usage = 0xba; return 1;
-		case ABS_GAS: *page = 0x02; *usage = 0xc4; return 1;
-		case ABS_BRAKE: *page = 0x02; *usage = 0xc5; return 1;
+		switch (a->usage)
+		{
+			case 0x30: return 0;
+			case 0x31: return 1;
+			case 0x32: return 2;
+			case 0x35: return 3;
+		}
+		return 10 + a->usage;
 	}
-	return 0;
+	if (a->usage_page == 0x02 && a->usage == 0xc5)
+		return 4; /* Brake before Accelerator */
+	return 100 + a->usage_page * 256 + a->usage;
 }
 
 static int cmp_axis(const void* a, const void* b)
 {
-	const struct iokitd_gamepad_axis* x = a;
-	const struct iokitd_gamepad_axis* y = b;
-	if (x->usage_page != y->usage_page)
-		return x->usage_page < y->usage_page ? -1 : 1;
-	return (int) x->usage - (int) y->usage;
+	return axis_rank(a) - axis_rank(b);
 }
 
-/* Fixes the report layout once buttons, hat and axes are known */
-static void layout_report(struct iokitd_gamepad* pad)
+static int bits_for_range(int64_t range)
 {
-	size_t offset = (pad->button_count + 7) / 8;
+	if (range <= 255)
+		return 8;
+	if (range <= 1023)
+		return 10;
+	if (range <= 65535)
+		return 16;
+	return 32;
+}
 
-	if (pad->has_hat)
+static int is_playstation_trigger(const struct iokitd_gamepad_axis* a)
+{
+	return a->usage_page == 0x01 && (a->usage == 0x33 || a->usage == 0x34);
+}
+
+/* Appends an item to the report and fixes its position; the report is built up bit by bit */
+static void add_field(struct iokitd_gamepad* pad, int kind, int index, int bits, int pad_to_byte, int* total)
+{
+	struct iokitd_gamepad_field* f = &pad->fields[pad->field_count++];
+
+	f->kind = (uint8_t) kind;
+	f->index = (uint8_t) index;
+	f->bit_offset = (uint16_t) *total;
+	f->bits = (uint8_t) bits;
+	*total += bits;
+	f->padding = pad_to_byte ? (uint8_t) ((8 - *total % 8) % 8) : 0;
+	*total += f->padding;
+}
+
+void iokitd_gamepad_layout(struct iokitd_gamepad* pad)
+{
+	int total = 0;
+	int playstation = pad->layout == IOKITD_GAMEPAD_LAYOUT_PLAYSTATION;
+
+	pad->field_count = 0;
+	/* The DualShock 4 report has its triggers after the buttons */
+	for (int pass = 0; pass < 2; pass++)
 	{
-		pad->hat_byte_offset = (uint16_t) offset;
-		offset += 1;
+		if (pass == 1)
+		{
+			if (pad->has_hat)
+				add_field(pad, IOKITD_GAMEPAD_FIELD_HAT, 0, 4, !playstation, &total);
+			if (pad->button_bits)
+				add_field(pad, IOKITD_GAMEPAD_FIELD_BUTTONS, 0, pad->button_bits, 1, &total);
+		}
+		for (int i = 0; i < pad->axis_count; i++)
+		{
+			int late = playstation && is_playstation_trigger(&pad->axes[i]);
+			if (late == pass)
+				add_field(pad, IOKITD_GAMEPAD_FIELD_AXIS, i, pad->axes[i].bits, 1, &total);
+		}
 	}
-	for (int i = 0; i < pad->axis_count; i++)
-	{
-		pad->axes[i].byte_offset = (uint16_t) offset;
-		offset += pad->axes[i].bits / 8;
-	}
-	pad->report_size = (uint16_t) offset;
+	pad->report_size = (uint16_t) ((total + 7) / 8);
 }
 
 int iokitd_gamepad_probe(const char* path, struct iokitd_gamepad* pad)
@@ -186,19 +342,53 @@ int iokitd_gamepad_probe(const char* path, struct iokitd_gamepad* pad)
 		return -1;
 	}
 
-	for (int code = BTN_JOYSTICK; code < KEY_CNT; code++)
+	if (ioctl(fd, EVIOCGID, id) == 0)
 	{
-		uint16_t usage = button_usage(code);
+		pad->bustype = id[0];
+		pad->vendor = id[1];
+		pad->product = id[2];
+		pad->version = id[3];
+	}
 
-		if (usage == 0 || !bit_is_set(key_bits, code))
-			continue;
-		if (code >= BTN_GAMEPAD && code <= BTN_THUMBR)
-			pad->has_gamepad_buttons = 1;
-		if (pad->button_count < IOKITD_GAMEPAD_MAX_BUTTONS)
+	for (int code = BTN_GAMEPAD; code <= BTN_THUMBR; code++)
+		pad->has_gamepad_buttons = pad->has_gamepad_buttons || bit_is_set(key_bits, code);
+	pad->layout = !pad->has_gamepad_buttons ? IOKITD_GAMEPAD_LAYOUT_JOYSTICK
+		: is_playstation_pad(pad->vendor, pad->product) ? IOKITD_GAMEPAD_LAYOUT_PLAYSTATION
+		: IOKITD_GAMEPAD_LAYOUT_STANDARD;
+
+	/* The buttons the layout has a usage for take it; the others follow in the order of their codes */
+	int fixed = 0, next_extra, used_usages[IOKITD_GAMEPAD_MAX_BUTTONS + 64] = {0};
+	button_usage(pad->layout, 0, &fixed);
+	next_extra = fixed + 1;
+	pad->button_bits = 0;
+	for (int pass = 0; pass < 2; pass++)
+	{
+		for (int code = BTN_JOYSTICK; code < KEY_CNT; code++)
 		{
+			int dummy;
+			uint16_t usage;
+
+			if (!is_controller_button(code) || !bit_is_set(key_bits, code))
+				continue;
+			usage = button_usage(pad->layout, code, &dummy);
+			if ((pass == 0) != (usage != 0))
+				continue;
+			if (pass == 1)
+			{
+				if (next_extra <= pad->button_bits)
+					next_extra = pad->button_bits + 1;
+				while (next_extra < (int) (sizeof(used_usages) / sizeof(used_usages[0])) && used_usages[next_extra])
+					next_extra++;
+				usage = (uint16_t) next_extra++;
+			}
+			if (pad->button_count >= IOKITD_GAMEPAD_MAX_BUTTONS || usage > 64)
+				continue;
+			used_usages[usage] = 1;
 			pad->buttons[pad->button_count].code = (uint16_t) code;
 			pad->buttons[pad->button_count].usage = usage;
 			pad->button_count++;
+			if (usage > pad->button_bits)
+				pad->button_bits = usage;
 		}
 	}
 
@@ -207,6 +397,11 @@ int iokitd_gamepad_probe(const char* path, struct iokitd_gamepad* pad)
 		close(fd);
 		return -1;
 	}
+	if (pad->button_bits < fixed)
+		pad->button_bits = fixed;
+
+	/* Without both ABS_RX and ABS_RY a gamepad has its right stick on ABS_Z and ABS_RZ */
+	int right_stick_rxry = bit_is_set(abs_bits, ABS_RX) && bit_is_set(abs_bits, ABS_RY);
 
 	for (int code = 0; code < ABS_CNT; code++)
 	{
@@ -231,7 +426,15 @@ int iokitd_gamepad_probe(const char* path, struct iokitd_gamepad* pad)
 			continue;
 		}
 
-		if (!axis_usage(code, &page, &usage) || pad->axis_count >= IOKITD_GAMEPAD_MAX_AXES || info.maximum <= info.minimum)
+		if (!axis_usage(pad->layout, right_stick_rxry, code, &page, &usage) || pad->axis_count >= IOKITD_GAMEPAD_MAX_AXES
+			|| info.maximum <= info.minimum)
+			continue;
+
+		/* Two axes of the controller may map to one usage (ABS_BRAKE and ABS_Z); the first wins */
+		int duplicate = 0;
+		for (int i = 0; i < pad->axis_count; i++)
+			duplicate = duplicate || (pad->axes[i].usage_page == page && pad->axes[i].usage == usage);
+		if (duplicate)
 			continue;
 
 		struct iokitd_gamepad_axis* axis = &pad->axes[pad->axis_count++];
@@ -240,22 +443,16 @@ int iokitd_gamepad_probe(const char* path, struct iokitd_gamepad* pad)
 		axis->usage = usage;
 		axis->minimum = info.minimum;
 		axis->maximum = info.maximum;
-		axis->bits = (info.minimum < -32768 || info.maximum > (info.minimum < 0 ? 32767 : 65535)) ? 32 : 16;
+		axis->bits = (uint8_t) bits_for_range((int64_t) info.maximum - info.minimum);
 	}
 	/* A hat needs both of its axes */
 	pad->has_hat = bit_is_set(abs_bits, ABS_HAT0X) && bit_is_set(abs_bits, ABS_HAT0Y)
 		&& pad->hat_x_max > pad->hat_x_min && pad->hat_y_max > pad->hat_y_min;
+	pad->hat_logical_min = pad->layout == IOKITD_GAMEPAD_LAYOUT_PLAYSTATION ? 0 : 1;
 
 	qsort(pad->axes, pad->axis_count, sizeof(pad->axes[0]), cmp_axis);
-	layout_report(pad);
+	iokitd_gamepad_layout(pad);
 
-	if (ioctl(fd, EVIOCGID, id) == 0)
-	{
-		pad->bustype = id[0];
-		pad->vendor = id[1];
-		pad->product = id[2];
-		pad->version = id[3];
-	}
 	if (ioctl(fd, EVIOCGNAME(sizeof(pad->name) - 1), pad->name) < 0)
 		pad->name[0] = '\0';
 	if (ioctl(fd, EVIOCGUNIQ(sizeof(pad->serial) - 1), pad->serial) < 0)
@@ -314,6 +511,7 @@ int iokitd_gamepad_open(const char* path)
 	return open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
 }
 
+/* Bit access in the report, least significant bit first within a byte, as a HID report is packed */
 static void set_bit(uint8_t* report, int bit, int on)
 {
 	if (on)
@@ -325,6 +523,20 @@ static void set_bit(uint8_t* report, int bit, int on)
 static int get_bit(const uint8_t* report, int bit)
 {
 	return (report[bit / 8] >> (bit % 8)) & 1;
+}
+
+static void put_bits(uint8_t* report, int bit, int bits, uint32_t value)
+{
+	for (int i = 0; i < bits; i++)
+		set_bit(report, bit + i, (value >> i) & 1);
+}
+
+static uint32_t get_bits(const uint8_t* report, int bit, int bits)
+{
+	uint32_t value = 0;
+	for (int i = 0; i < bits; i++)
+		value |= (uint32_t) get_bit(report, bit + i) << i;
+	return value;
 }
 
 /* The hat is stored as the two directions of each axis; the 4-bit report value is derived */
@@ -339,23 +551,52 @@ static int32_t hat_axis_sign(int32_t value, int32_t minimum, int32_t maximum)
 }
 
 /*
- * Hat values: 1 = up, 2 = up-right, ... 8 = up-left (clockwise), 0 = null,
- * as the report descriptor's logical range 1..8 with a null state declares.
+ * Hat directions, numbered 0 = centred, 1 = up, 2 = up-right, ... 8 = up-left
+ * (clockwise). The report holds the number itself when the hat's logical
+ * minimum is 1 (centred is 0, outside the range: the null state), and the
+ * number minus one when it is 0 (centred is 8, again outside the range).
  */
-static uint8_t hat_report_value(int x, int y)
+static const int8_t hat_x_of[9] = { 0, 0, 1, 1, 1, 0, -1, -1, -1 };
+static const int8_t hat_y_of[9] = { 0, -1, -1, 0, 1, 1, 1, 0, -1 };
+
+static const struct iokitd_gamepad_field* find_field(const struct iokitd_gamepad* pad, int kind)
 {
-	static const uint8_t table[3][3] = {
-		/* y = -1 (up) */ { 8, 1, 2 },
-		/* y =  0      */ { 7, 0, 3 },
-		/* y = +1 */      { 6, 5, 4 },
-	};
-	return table[y + 1][x + 1];
+	for (int i = 0; i < pad->field_count; i++)
+	{
+		if (pad->fields[i].kind == kind)
+			return &pad->fields[i];
+	}
+	return NULL;
+}
+
+static uint32_t hat_report_value(const struct iokitd_gamepad* pad, int direction)
+{
+	if (pad->hat_logical_min == 1)
+		return (uint32_t) direction;
+	return direction == 0 ? 8 : (uint32_t) direction - 1;
+}
+
+static int hat_direction(const struct iokitd_gamepad* pad, uint32_t value)
+{
+	if (pad->hat_logical_min == 1)
+		return value <= 8 ? (int) value : 0;
+	return value <= 7 ? (int) value + 1 : 0;
+}
+
+/* The report with every item at rest: the hat centred, nothing else set */
+static void rest_report(const struct iokitd_gamepad* pad, uint8_t* report)
+{
+	const struct iokitd_gamepad_field* hat = find_field(pad, IOKITD_GAMEPAD_FIELD_HAT);
+
+	memset(report, 0, pad->report_size);
+	if (hat)
+		put_bits(report, hat->bit_offset, 4, hat_report_value(pad, 0));
 }
 
 int iokitd_gamepad_apply_event(const struct iokitd_gamepad* pad, uint8_t* report,
 	uint16_t type, uint16_t code, int32_t value)
 {
-	uint8_t before[IOKITD_GAMEPAD_MAX_BUTTONS / 8 + 1 + 1 + IOKITD_GAMEPAD_MAX_AXES * 4];
+	uint8_t before[IOKITD_GAMEPAD_MAX_REPORT];
 	size_t size = pad->report_size;
 
 	if (size > sizeof(before))
@@ -364,55 +605,57 @@ int iokitd_gamepad_apply_event(const struct iokitd_gamepad* pad, uint8_t* report
 
 	if (type == EV_KEY)
 	{
-		for (int i = 0; i < pad->button_count; i++)
+		const struct iokitd_gamepad_field* buttons = find_field(pad, IOKITD_GAMEPAD_FIELD_BUTTONS);
+
+		for (int i = 0; buttons && i < pad->button_count; i++)
 		{
 			if (pad->buttons[i].code == code)
 			{
-				set_bit(report, i, value != 0);
+				set_bit(report, buttons->bit_offset + pad->buttons[i].usage - 1, value != 0);
 				break;
 			}
 		}
 	}
 	else if (type == EV_ABS)
 	{
-		if (pad->has_hat && (code == ABS_HAT0X || code == ABS_HAT0Y))
+		const struct iokitd_gamepad_field* hat = find_field(pad, IOKITD_GAMEPAD_FIELD_HAT);
+
+		if (hat && (code == ABS_HAT0X || code == ABS_HAT0Y))
 		{
 			/* The hat axes arrive one at a time; keep the other from the report */
-			uint8_t current = report[pad->hat_byte_offset] & 0x0f;
-			static const int8_t x_of[9] = { 0, 0, 1, 1, 1, 0, -1, -1, -1 };
-			static const int8_t y_of[9] = { 0, -1, -1, 0, 1, 1, 1, 0, -1 };
-			int x = x_of[current], y = y_of[current];
+			int current = hat_direction(pad, get_bits(report, hat->bit_offset, 4));
+			int x = hat_x_of[current], y = hat_y_of[current];
 
 			if (code == ABS_HAT0X)
 				x = hat_axis_sign(value, pad->hat_x_min, pad->hat_x_max);
 			else
 				y = hat_axis_sign(value, pad->hat_y_min, pad->hat_y_max);
-			report[pad->hat_byte_offset] = hat_report_value(x, y);
+
+			int direction = 0;
+			for (int d = 1; d <= 8; d++)
+			{
+				if (hat_x_of[d] == x && hat_y_of[d] == y)
+					direction = d;
+			}
+			put_bits(report, hat->bit_offset, 4, hat_report_value(pad, direction));
 		}
 		else
 		{
-			for (int i = 0; i < pad->axis_count; i++)
+			for (int i = 0; i < pad->field_count; i++)
 			{
-				const struct iokitd_gamepad_axis* axis = &pad->axes[i];
+				const struct iokitd_gamepad_field* f = &pad->fields[i];
+				const struct iokitd_gamepad_axis* axis;
 
+				if (f->kind != IOKITD_GAMEPAD_FIELD_AXIS)
+					continue;
+				axis = &pad->axes[f->index];
 				if (axis->code != code)
 					continue;
 				if (value < axis->minimum)
 					value = axis->minimum;
 				if (value > axis->maximum)
 					value = axis->maximum;
-				if (axis->bits == 16)
-				{
-					uint16_t v = (uint16_t) value;
-					report[axis->byte_offset] = (uint8_t) v;
-					report[axis->byte_offset + 1] = (uint8_t) (v >> 8);
-				}
-				else
-				{
-					uint32_t v = (uint32_t) value;
-					for (int b = 0; b < 4; b++)
-						report[axis->byte_offset + b] = (uint8_t) (v >> (8 * b));
-				}
+				put_bits(report, f->bit_offset, f->bits, (uint32_t) ((int64_t) value - axis->minimum));
 				break;
 			}
 		}
@@ -425,9 +668,9 @@ void iokitd_gamepad_initial_report(int fd, const struct iokitd_gamepad* pad, uin
 {
 	uint8_t keys[KEY_CNT / 8] = {0};
 
-	memset(report, 0, pad->report_size);
+	rest_report(pad, report);
 
-	/* An axis at rest is not at zero: start from what the kernel reports */
+	/* An axis at rest is not at its minimum: start from what the kernel reports */
 	for (int i = 0; i < pad->axis_count; i++)
 	{
 		struct evdev_absinfo info;
@@ -444,8 +687,10 @@ void iokitd_gamepad_initial_report(int fd, const struct iokitd_gamepad* pad, uin
 	}
 	if (ioctl(fd, EVIOCGKEY(sizeof(keys)), keys) == 0)
 	{
-		for (int i = 0; i < pad->button_count; i++)
-			set_bit(report, i, get_bit(keys, pad->buttons[i].code));
+		const struct iokitd_gamepad_field* buttons = find_field(pad, IOKITD_GAMEPAD_FIELD_BUTTONS);
+
+		for (int i = 0; buttons && i < pad->button_count; i++)
+			set_bit(report, buttons->bit_offset + pad->buttons[i].usage - 1, get_bit(keys, pad->buttons[i].code));
 	}
 }
 
@@ -454,7 +699,7 @@ int iokitd_gamepad_read(int fd, const struct iokitd_gamepad* pad, uint8_t* repor
 	struct evdev_event events[32];
 	int changed = 0;
 	/* Applied to a copy until SYN_REPORT, so a half-delivered frame is never visible */
-	uint8_t pending[IOKITD_GAMEPAD_MAX_BUTTONS / 8 + 1 + 1 + IOKITD_GAMEPAD_MAX_AXES * 4];
+	uint8_t pending[IOKITD_GAMEPAD_MAX_REPORT];
 
 	if (pad->report_size > sizeof(pending))
 		return 0;
@@ -527,11 +772,23 @@ static void put_item(struct descriptor_writer* w, uint8_t prefix, int32_t value)
 
 #define USAGE_PAGE(w, v) put_item(w, 0x04, v)
 #define USAGE(w, v) put_item(w, 0x08, v)
+#define USAGE_MIN(w, v) put_item(w, 0x18, v)
+#define USAGE_MAX(w, v) put_item(w, 0x28, v)
 #define LOGICAL_MIN(w, v) put_item(w, 0x14, v)
 #define LOGICAL_MAX(w, v) put_item(w, 0x24, v)
 #define REPORT_SIZE(w, v) put_item(w, 0x74, v)
 #define REPORT_COUNT(w, v) put_item(w, 0x94, v)
 #define INPUT(w, v) put_item(w, 0x80, v)
+
+static void constant_padding(struct descriptor_writer* w, int bits)
+{
+	if (bits > 0)
+	{
+		REPORT_SIZE(w, 1);
+		REPORT_COUNT(w, bits);
+		INPUT(w, 0x03);                /* Constant */
+	}
+}
 
 int iokitd_gamepad_report_descriptor(const struct iokitd_gamepad* pad, uint8_t* out, size_t size)
 {
@@ -541,51 +798,52 @@ int iokitd_gamepad_report_descriptor(const struct iokitd_gamepad* pad, uint8_t* 
 	USAGE(&w, iokitd_gamepad_primary_usage(pad));
 	put_item(&w, 0xa0, 0x01);       /* Collection (Application) */
 
-	/* Buttons are not necessarily consecutive usages; one Usage item each */
-	USAGE_PAGE(&w, 0x09);
-	for (int i = 0; i < pad->button_count; i++)
-		USAGE(&w, pad->buttons[i].usage);
-	LOGICAL_MIN(&w, 0);
-	LOGICAL_MAX(&w, 1);
-	REPORT_SIZE(&w, 1);
-	REPORT_COUNT(&w, pad->button_count);
-	INPUT(&w, 0x02);                /* Data, Variable, Absolute */
-	if (pad->button_count % 8)
+	for (int i = 0; i < pad->field_count; i++)
 	{
-		REPORT_SIZE(&w, 1);
-		REPORT_COUNT(&w, 8 - pad->button_count % 8);
-		INPUT(&w, 0x03);            /* Constant */
-	}
+		const struct iokitd_gamepad_field* f = &pad->fields[i];
 
-	if (pad->has_hat)
-	{
-		USAGE_PAGE(&w, 0x01);
-		USAGE(&w, 0x39);
-		LOGICAL_MIN(&w, 1);
-		LOGICAL_MAX(&w, 8);
-		put_item(&w, 0x34, 0);      /* Physical Minimum 0 */
-		put_item(&w, 0x44, 315);    /* Physical Maximum 315 */
-		put_item(&w, 0x64, 0x14);   /* Unit: degrees */
-		REPORT_SIZE(&w, 4);
-		REPORT_COUNT(&w, 1);
-		INPUT(&w, 0x42);            /* Data, Variable, Absolute, Null state */
-		put_item(&w, 0x64, 0);      /* Unit: none */
-		REPORT_SIZE(&w, 4);
-		REPORT_COUNT(&w, 1);
-		INPUT(&w, 0x03);
-	}
+		switch (f->kind)
+		{
+			case IOKITD_GAMEPAD_FIELD_BUTTONS:
+				USAGE_PAGE(&w, 0x09);
+				USAGE_MIN(&w, 1);
+				USAGE_MAX(&w, pad->button_bits);
+				LOGICAL_MIN(&w, 0);
+				LOGICAL_MAX(&w, 1);
+				REPORT_SIZE(&w, 1);
+				REPORT_COUNT(&w, pad->button_bits);
+				INPUT(&w, 0x02);        /* Data, Variable, Absolute */
+				break;
+			case IOKITD_GAMEPAD_FIELD_HAT:
+				USAGE_PAGE(&w, 0x01);
+				USAGE(&w, 0x39);
+				LOGICAL_MIN(&w, pad->hat_logical_min);
+				LOGICAL_MAX(&w, pad->hat_logical_min + 7);
+				put_item(&w, 0x34, 0);      /* Physical Minimum 0 */
+				put_item(&w, 0x44, 315);    /* Physical Maximum 315 */
+				put_item(&w, 0x64, 0x14);   /* Unit: degrees */
+				REPORT_SIZE(&w, 4);
+				REPORT_COUNT(&w, 1);
+				INPUT(&w, 0x42);            /* Data, Variable, Absolute, Null state */
+				put_item(&w, 0x34, 0);      /* The physical range and unit end with the hat */
+				put_item(&w, 0x44, 0);
+				put_item(&w, 0x64, 0);
+				break;
+			case IOKITD_GAMEPAD_FIELD_AXIS:
+			{
+				const struct iokitd_gamepad_axis* axis = &pad->axes[f->index];
 
-	for (int i = 0; i < pad->axis_count; i++)
-	{
-		const struct iokitd_gamepad_axis* axis = &pad->axes[i];
-
-		USAGE_PAGE(&w, axis->usage_page);
-		USAGE(&w, axis->usage);
-		LOGICAL_MIN(&w, axis->minimum);
-		LOGICAL_MAX(&w, axis->maximum);
-		REPORT_SIZE(&w, axis->bits);
-		REPORT_COUNT(&w, 1);
-		INPUT(&w, 0x02);
+				USAGE_PAGE(&w, axis->usage_page);
+				USAGE(&w, axis->usage);
+				LOGICAL_MIN(&w, 0);
+				LOGICAL_MAX(&w, (int32_t) ((int64_t) axis->maximum - axis->minimum));
+				REPORT_SIZE(&w, axis->bits);
+				REPORT_COUNT(&w, 1);
+				INPUT(&w, 0x02);
+				break;
+			}
+		}
+		constant_padding(&w, f->padding);
 	}
 
 	put_byte(&w, 0xc0);             /* End Collection */
@@ -595,6 +853,7 @@ int iokitd_gamepad_report_descriptor(const struct iokitd_gamepad* pad, uint8_t* 
 
 #else /* !__LP64__ */
 
+void iokitd_gamepad_layout(struct iokitd_gamepad* pad) {}
 int iokitd_gamepad_probe(const char* path, struct iokitd_gamepad* pad) { return -1; }
 int iokitd_gamepad_list(const char* directory, char paths[][64], int max) { return 0; }
 int iokitd_gamepad_open(const char* path) { return -1; }

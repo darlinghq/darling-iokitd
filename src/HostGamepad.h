@@ -32,21 +32,45 @@
  * 64-bit hosts are supported (the layout of struct input_event is fixed to
  * the 64-bit one); elsewhere no controller is ever found.
  *
- * Mapping to HID (a property of the descriptor this file generates, which
- * consumers such as GameController rely on):
- *  - buttons BTN_SOUTH .. BTN_THUMBR (0x130 .. 0x13e) are Button page
- *    usages 1 .. 15; BTN_DPAD_UP, _DOWN, _LEFT, _RIGHT (0x220 .. 0x223) are
- *    usages 16 .. 19; BTN_TRIGGER .. BTN_BASE6 (0x120 .. 0x12f) are
- *    usages 20 .. 35;
- *  - ABS_X .. ABS_RZ (0 .. 5) are Generic Desktop X, Y, Z, Rx, Ry, Rz
- *    (usages 0x30 .. 0x35); ABS_HAT0X and ABS_HAT0Y together are one Hat
- *    switch (0x39), null state when centred;
- *  - ABS_THROTTLE, ABS_RUDDER, ABS_GAS and ABS_BRAKE are Simulation Controls
- *    Throttle (0xBB), Rudder (0xBA), Accelerator (0xC4) and Brake (0xC5).
- * The input report has no report ID: the buttons present, packed one bit
- * each and padded to a byte, then the hat (4 bits, padded to a byte) if there
- * is one, then the axes in the order of their usages, each 16 bits (signed
- * if its minimum is negative) or 32 bits if its range needs it.
+ * Mapping to HID. The descriptor follows the layout that real controllers
+ * of the same kind publish, so that consumers which expect it (device
+ * databases keyed on usages, element order, button numbers) find it:
+ *  - A controller with the BTN_GAMEPAD block (BTN_SOUTH .. BTN_THUMBR) uses
+ *    the standard layout, or the PlayStation layout for the DualShock 4
+ *    (Sony vendor id, product ids 0x05c4, 0x09cc, 0x0ba0). Anything else is
+ *    a joystick (Generic Desktop Joystick, usage 4) with the joystick layout.
+ *  - Button usages are contiguous, 1 .. N, and the report holds exactly N
+ *    bits for them (a bit stays 0 for a button the controller lacks).
+ *    Standard layout: the Linux code BTN_GAMEPAD + k is usage k + 1 (A is
+ *    1, B 2, X 4, Y 5, LB 7, RB 8, View 11, Menu 12, Guide 13, the stick
+ *    buttons 14 and 15; 15 usages, as the Xbox One controller). PlayStation
+ *    layout: Square 1, Cross 2, Circle 3, Triangle 4, L1 5, R1 6, L2 7,
+ *    R2 8, Share 9, Options 10, L3 11, R3 12, PS 13, touch pad 14 (14
+ *    usages). Joystick layout: BTN_JOYSTICK + k is usage k + 1. Buttons the
+ *    layout has no usage for (BTN_DPAD_*, BTN_TRIGGER_HAPPY, ...) follow in
+ *    the order of their codes.
+ *  - Sticks and triggers follow the Linux gamepad convention (ABS_X, ABS_Y
+ *    left stick, ABS_RX, ABS_RY right stick, ABS_Z, ABS_RZ the triggers).
+ *    A gamepad without both ABS_RX and ABS_RY has ABS_Z, ABS_RZ as its
+ *    right stick instead (and no analog triggers). Gamepad layouts publish the left stick as X, Y
+ *    and the right stick as Z, Rz (usages 0x30, 0x31, 0x32, 0x35). The
+ *    triggers are Brake (the left, Simulation Controls 0xC5) and Accelerator
+ *    (the right, 0xC4) in the standard layout and Rx, Ry (0x33, 0x34) in
+ *    the PlayStation layout. A joystick publishes ABS_X .. ABS_RZ as X, Y,
+ *    Z, Rx, Ry, Rz. ABS_THROTTLE, ABS_RUDDER, ABS_GAS and ABS_BRAKE are
+ *    Throttle (0xBB), Rudder (0xBA), Accelerator and Brake.
+ *  - Axis values are reported as the offset from the minimum of the
+ *    controller's range: logical minimum 0, maximum the size of the range.
+ *    The field is 8 bits for a range up to 255, 10 bits up to 1023 (padded to
+ *    16), 16 bits up to 65535, else 32.
+ *  - ABS_HAT0X and ABS_HAT0Y together are one Hat switch (0x39), 4 bits,
+ *    degrees, physical 0 .. 315, null state when centred. Standard and
+ *    joystick layout: logical 1 .. 8 (up is 1, clockwise), null state 0.
+ *    PlayStation layout: logical 0 .. 7 (up is 0), null state 8.
+ * The input report has no report ID. Fields follow in this order, each
+ * padded to a byte boundary except the PlayStation hat (the buttons share
+ * its byte): the axes (the PlayStation layout puts its triggers after the
+ * buttons), the hat, the buttons.
  */
 
 #ifndef IOKITD_HOST_GAMEPAD_H
@@ -59,29 +83,48 @@
 extern "C" {
 #endif
 
-#define IOKITD_GAMEPAD_MAX_BUTTONS 40
+#define IOKITD_GAMEPAD_MAX_BUTTONS 48
 #define IOKITD_GAMEPAD_MAX_AXES 16
+#define IOKITD_GAMEPAD_MAX_FIELDS (IOKITD_GAMEPAD_MAX_AXES + 2)
+#define IOKITD_GAMEPAD_MAX_REPORT 128
 
-enum iokitd_gamepad_axis_kind
+enum iokitd_gamepad_layout
 {
-	IOKITD_GAMEPAD_AXIS,
-	IOKITD_GAMEPAD_HAT,
+	IOKITD_GAMEPAD_LAYOUT_JOYSTICK,
+	IOKITD_GAMEPAD_LAYOUT_STANDARD,
+	IOKITD_GAMEPAD_LAYOUT_PLAYSTATION,
+};
+
+enum iokitd_gamepad_field_kind
+{
+	IOKITD_GAMEPAD_FIELD_AXIS,
+	IOKITD_GAMEPAD_FIELD_HAT,
+	IOKITD_GAMEPAD_FIELD_BUTTONS,
 };
 
 struct iokitd_gamepad_button
 {
 	uint16_t code;       /* evdev key code */
-	uint16_t usage;      /* Button page usage */
+	uint16_t usage;      /* Button page usage; the report bit is usage - 1 */
 };
 
 struct iokitd_gamepad_axis
 {
-	uint16_t code;       /* evdev axis code, ABS_HAT0X for the hat */
+	uint16_t code;       /* evdev axis code */
 	uint16_t usage_page;
 	uint16_t usage;
-	int32_t minimum, maximum;
-	uint8_t bits;        /* 16 or 32 */
-	uint16_t byte_offset;/* in the input report */
+	int32_t minimum, maximum; /* evdev range; the report holds value - minimum */
+	uint8_t bits;        /* 8, 10, 16 or 32 */
+};
+
+/* One input item of the report, in report order */
+struct iokitd_gamepad_field
+{
+	uint8_t kind;        /* enum iokitd_gamepad_field_kind */
+	uint8_t index;       /* into axes[] for an axis */
+	uint16_t bit_offset; /* in the input report */
+	uint8_t bits;        /* size of the item (for buttons: button_bits) */
+	uint8_t padding;     /* constant bits that follow the item */
 };
 
 struct iokitd_gamepad
@@ -92,19 +135,31 @@ struct iokitd_gamepad
 	uint16_t bustype, vendor, product, version;
 
 	int has_gamepad_buttons; /* the BTN_GAMEPAD block, as opposed to a joystick */
+	int layout;              /* enum iokitd_gamepad_layout */
 
-	int button_count;
+	int button_count;        /* buttons the controller has */
 	struct iokitd_gamepad_button buttons[IOKITD_GAMEPAD_MAX_BUTTONS];
+	int button_bits;         /* usages 1 .. button_bits are declared (0 if no buttons) */
 
 	int axis_count;          /* without the hat */
 	struct iokitd_gamepad_axis axes[IOKITD_GAMEPAD_MAX_AXES];
 
 	int has_hat;
 	int32_t hat_x_min, hat_x_max, hat_y_min, hat_y_max;
-	uint16_t hat_byte_offset;
+	int hat_logical_min;     /* 1 (null state 0) or 0 (null state 8); the maximum is min + 7 */
+
+	int field_count;
+	struct iokitd_gamepad_field fields[IOKITD_GAMEPAD_MAX_FIELDS];
 
 	uint16_t report_size;    /* bytes */
 };
+
+/*
+ * Fixes the report layout (the fields, their offsets and report_size) once
+ * layout, buttons, button_bits, axes, has_hat and hat_logical_min are set.
+ * iokitd_gamepad_probe() calls it; exposed for the descriptor tests.
+ */
+void iokitd_gamepad_layout(struct iokitd_gamepad* pad);
 
 /*
  * Reads the capabilities of an evdev node and decides whether it is a game

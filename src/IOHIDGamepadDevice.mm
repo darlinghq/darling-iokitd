@@ -96,9 +96,9 @@ static NSDictionary* propertiesOf(const struct iokitd_gamepad& pad)
 }
 
 // The elements of the report descriptor iokitd generates for the controller
-// (HostGamepad.h): one application collection holding the buttons (a struct
-// for each run of consecutive usages), the hat and the axes, and the handler
-// of the input report. Cookies run from 1 in that order.
+// (HostGamepad.h): one application collection holding the items of the
+// report in descriptor order (the buttons as one struct of consecutive
+// usages, the hat, the axes), and the handler of the input report. Cookies run from 1 in that order.
 static std::vector<IOHIDElementDescription> elementsOf(const struct iokitd_gamepad& pad)
 {
 	std::vector<IOHIDElementDescription> elements;
@@ -118,65 +118,58 @@ static std::vector<IOHIDElementDescription> elementsOf(const struct iokitd_gamep
 	collection.wire.usageMin = collection.wire.usageMax = iokitd_gamepad_primary_usage(&pad);
 	add(collection, 1);
 
-	for (int first = 0; first < pad.button_count;)
+	for (int i = 0; i < pad.field_count; i++)
 	{
-		int last = first;
-		while (last + 1 < pad.button_count && pad.buttons[last + 1].usage == pad.buttons[last].usage + 1)
-			last++;
-
+		const struct iokitd_gamepad_field& f = pad.fields[i];
 		IOHIDElementDescription e = {};
+
 		e.wire.parentCookie = 1;
-		e.wire.type = kIOHIDLibTypeInputButton;
 		e.wire.flags = kIOHIDLibFlagsVariable;
-		e.wire.usagePage = 0x09;
-		e.wire.usageMin = pad.buttons[first].usage;
-		e.wire.usageMax = pad.buttons[last].usage;
-		e.wire.min = e.wire.scaledMin = 0;
-		e.wire.max = e.wire.scaledMax = 1;
-		e.wire.size = e.wire.reportSize = 1;
-		e.wire.reportCount = e.wire.rawReportCount = last - first + 1;
-		e.wire.bytes = e.wire.valueSize = 1;
-		e.bitOffset = first;
-		add(e, last - first + 1);
-		first = last + 1;
-	}
-
-	if (pad.has_hat)
-	{
-		IOHIDElementDescription e = {};
-		e.wire.parentCookie = 1;
-		e.wire.type = kIOHIDLibTypeInputMisc;
-		e.wire.flags = kIOHIDLibFlagsVariable | kIOHIDLibFlagsNullState;
-		e.wire.usagePage = 0x01;
-		e.wire.usageMin = e.wire.usageMax = 0x39;
-		e.wire.min = 1;
-		e.wire.max = 8;
-		e.wire.scaledMin = 0;
-		e.wire.scaledMax = 315;
-		e.wire.size = e.wire.reportSize = 4;
 		e.wire.reportCount = e.wire.rawReportCount = 1;
-		e.wire.unit = 0x14; // degrees
-		e.wire.bytes = e.wire.valueSize = 1;
-		e.bitOffset = pad.hat_byte_offset * 8;
-		add(e, 1);
-	}
+		e.bitOffset = f.bit_offset;
 
-	for (int i = 0; i < pad.axis_count; i++)
-	{
-		const struct iokitd_gamepad_axis& axis = pad.axes[i];
-		IOHIDElementDescription e = {};
-		e.wire.parentCookie = 1;
-		e.wire.type = kIOHIDLibTypeInputMisc;
-		e.wire.flags = kIOHIDLibFlagsVariable;
-		e.wire.usagePage = axis.usage_page;
-		e.wire.usageMin = e.wire.usageMax = axis.usage;
-		e.wire.min = e.wire.scaledMin = axis.minimum;
-		e.wire.max = e.wire.scaledMax = axis.maximum;
-		e.wire.size = e.wire.reportSize = axis.bits;
-		e.wire.reportCount = e.wire.rawReportCount = 1;
-		e.wire.bytes = e.wire.valueSize = axis.bits / 8;
-		e.bitOffset = axis.byte_offset * 8;
-		add(e, 1);
+		if (f.kind == IOKITD_GAMEPAD_FIELD_BUTTONS)
+		{
+			// Usages 1 .. button_bits, one element each, one bit each
+			e.wire.type = kIOHIDLibTypeInputButton;
+			e.wire.usagePage = 0x09;
+			e.wire.usageMin = 1;
+			e.wire.usageMax = pad.button_bits;
+			e.wire.min = e.wire.scaledMin = 0;
+			e.wire.max = e.wire.scaledMax = 1;
+			e.wire.size = e.wire.reportSize = 1;
+			e.wire.reportCount = e.wire.rawReportCount = pad.button_bits;
+			e.wire.bytes = e.wire.valueSize = 1;
+			add(e, pad.button_bits);
+		}
+		else if (f.kind == IOKITD_GAMEPAD_FIELD_HAT)
+		{
+			e.wire.type = kIOHIDLibTypeInputMisc;
+			e.wire.flags |= kIOHIDLibFlagsNullState;
+			e.wire.usagePage = 0x01;
+			e.wire.usageMin = e.wire.usageMax = 0x39;
+			e.wire.min = pad.hat_logical_min;
+			e.wire.max = pad.hat_logical_min + 7;
+			e.wire.scaledMin = 0;
+			e.wire.scaledMax = 315;
+			e.wire.size = e.wire.reportSize = 4;
+			e.wire.unit = 0x14; // degrees
+			e.wire.bytes = e.wire.valueSize = 1;
+			add(e, 1);
+		}
+		else
+		{
+			const struct iokitd_gamepad_axis& axis = pad.axes[f.index];
+
+			e.wire.type = kIOHIDLibTypeInputMisc;
+			e.wire.usagePage = axis.usage_page;
+			e.wire.usageMin = e.wire.usageMax = axis.usage;
+			e.wire.min = e.wire.scaledMin = 0;
+			e.wire.max = e.wire.scaledMax = axis.maximum - axis.minimum;
+			e.wire.size = e.wire.reportSize = axis.bits;
+			e.wire.bytes = e.wire.valueSize = (axis.bits + 7) / 8;
+			add(e, 1);
+		}
 	}
 
 	// The input report as a whole, for clients that want the bytes

@@ -5,7 +5,8 @@ HostGamepad.c is built natively together with tests/host-gamepad-test.c.
 
 Always checked ("layout"): the HID report descriptor generated for a
 described controller, and the folding of evdev events into its input report
-(buttons, the hat from its two axes, signed and unsigned axes, clamping).
+(buttons as contiguous usages, the hat from its two axes in the standard and the
+PlayStation layout, axes as offsets from their minimum, clamping).
 
 Checked when /dev/uinput can be written (usually root, or a udev rule): a
 virtual controller made through uinput is recognised as a controller (and
@@ -102,17 +103,19 @@ else:
 
             watch = subprocess.Popen([exe, "watch", node, "4"], stdout=subprocess.PIPE, text=True)
             first = watch.stdout.readline().strip()
-            check(first == "report 00 00 00 00 00 00 00 00", "initial report: " + first)
+            check(first == "report 00 80 00 80 00 00 00 00", "initial report: " + first)
             emit(fd, [(EV_KEY, BTN_EAST, 1)])
             emit(fd, [(EV_ABS, 0x11, -1)])
             emit(fd, [(EV_ABS, 0, 1)])
             emit(fd, [(EV_ABS, 2, 200)])
             lines = [watch.stdout.readline().strip() for _ in range(4)]
             watch.wait(timeout=10)
-            expected = ["report 02 00 00 00 00 00 00 00",
-                        "report 02 01 00 00 00 00 00 00",
-                        "report 02 01 01 00 00 00 00 00",
-                        "report 02 01 01 00 00 00 c8 00"]
+            # X and Y report the offset from their minimum (rest is the middle), Z is 8 bits, the hat
+            # is the 4 bits after them, the buttons follow
+            expected = ["report 00 80 00 80 00 00 02 00",
+                        "report 00 80 00 80 00 01 02 00",
+                        "report 01 80 00 80 00 01 02 00",
+                        "report 01 80 00 80 c8 01 02 00"]
             check(lines == expected, "button, hat and axes change the report: %r" % lines)
     finally:
         for f in (fd, other_fd):
