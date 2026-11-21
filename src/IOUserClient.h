@@ -30,6 +30,18 @@ class IOUserClient : public IOService
 public:
 	// The default dispatches through getExternalMethodForIndex()
 	virtual IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments *arguments);
+
+	// IOConnectCallAsyncMethod(). The method completes before it returns; the
+	// wake port and reference are for completions the method sends later.
+	// The send right of wakePort is the callee's to keep or release, also on
+	// failure. The default releases it and refuses the call.
+	virtual IOReturn asyncExternalMethod(uint32_t selector, IOExternalMethodArguments *arguments,
+		mach_port_t wakePort, const uint64_t* reference, uint32_t referenceCount);
+
+	// IOConnectMapMemory(). A client's memory is shared between this process
+	// and the client's, which it can only be as a file the client maps: the
+	// descriptor stays the connection's and *size is the length to map.
+	virtual IOReturn clientMemory(uint32_t type, int* fd, uint64_t* size);
 	IOExternalMethod *getTargetAndMethodForIndex(IOService **targetP, UInt32 index);
 	virtual IOExternalMethod *getExternalMethodForIndex(UInt32 index) = 0;
 };
