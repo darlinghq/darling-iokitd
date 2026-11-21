@@ -70,6 +70,8 @@ set(iokitd_sources
 	src/IOPlatformExpertDevice.mm
 	src/IOServiceNotification.mm
 	src/IOHIDGamepadDevice.mm
+	src/IOHIDLibUserClient.mm
+	src/IOHIDDeviceMatching.mm
 	src/IOHIDInputDevice.mm
 	src/HostGamepad.c
 	src/HostInput.c
@@ -85,7 +87,7 @@ set(iokitd_sources
 )
 
 add_darling_executable(iokitd ${iokitd_sources})
-target_link_libraries(iokitd cxx bsm.0 CoreFoundation Foundation X11 XRandR Xext EGL GL IOSurface dbus)
+target_link_libraries(iokitd cxx bsm.0 CoreFoundation Foundation IOKit X11 XRandR Xext EGL GL IOSurface dbus)
 
 install(TARGETS iokitd DESTINATION libexec/darling/usr/sbin)
 install(FILES org.darlinghq.iokitd.plist DESTINATION libexec/darling/System/Library/LaunchDaemons)

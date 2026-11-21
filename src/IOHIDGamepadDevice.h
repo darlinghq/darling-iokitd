@@ -23,6 +23,7 @@
 #include "IOService.h"
 #include "ServiceRegistry.h"
 #include "HostGamepad.h"
+#include "IOHIDLibUserClient.h"
 #include <string>
 #include <vector>
 
@@ -35,7 +36,7 @@
 // second, publishes controllers it can read, and unpublishes them when the
 // node disappears or reading fails. Without permission to read the nodes no
 // controller is published, which is not an error.
-class IOHIDGamepadDevice : public IOService
+class IOHIDGamepadDevice : public IOService, public IOHIDReportDevice
 {
 public:
 	explicit IOHIDGamepadDevice(const struct iokitd_gamepad& pad);
@@ -44,7 +45,13 @@ public:
 	const char* className() const override;
 	bool conformsTo(const char* className) override;
 	NSDictionary* matchingDictionary() override;
+	bool matches(NSDictionary* dict) override;
 	NSDictionary* getProperties() override;
+	IOReturn newUserClient(uint32_t type, IOUserClient** client) override;
+
+	// IOHIDReportDevice
+	const std::vector<IOHIDElementDescription>& hidElements() const override { return m_elements; }
+	const std::vector<uint8_t>& hidReport() const override { return m_report; }
 
 	std::string path() const { return m_pad.path; }
 	const struct iokitd_gamepad& description() const { return m_pad; }
@@ -57,6 +64,7 @@ public:
 private:
 	struct iokitd_gamepad m_pad;
 	std::vector<uint8_t> m_report;
+	std::vector<IOHIDElementDescription> m_elements;
 	NSDictionary* m_properties;
 	int m_fd = -1;
 	dispatch_source_t m_readSource = nullptr;
