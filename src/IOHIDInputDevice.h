@@ -45,6 +45,7 @@ public:
 	const char* className() const override;
 	bool conformsTo(const char* className) override;
 	NSDictionary* matchingDictionary() override;
+	bool matches(NSDictionary* dict) override;
 	NSDictionary* getProperties() override;
 
 	std::string path() const { return m_dev.path; }

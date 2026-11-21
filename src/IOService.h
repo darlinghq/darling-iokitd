@@ -34,7 +34,7 @@ class IOService : public IORegistryEntry
 public:
 	IOService();
 	virtual NSDictionary* matchingDictionary() = 0;
-	bool matches(NSDictionary* dict);
+	virtual bool matches(NSDictionary* dict);
 	bool conformsTo(const char* className) override;
 
 	// IOServiceOpen(). On success, *client holds the reference that is

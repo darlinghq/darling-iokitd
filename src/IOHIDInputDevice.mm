@@ -18,6 +18,7 @@
 */
 
 #include "IOHIDInputDevice.h"
+#include "IOHIDDeviceMatching.h"
 #import <Foundation/NSArray.h>
 #import <Foundation/NSData.h>
 #import <Foundation/NSString.h>
@@ -107,6 +108,15 @@ const char* IOHIDInputDevice::className() const
 bool IOHIDInputDevice::conformsTo(const char* name)
 {
 	return std::strcmp(name, "IOHIDDevice") == 0 || IOService::conformsTo(name);
+}
+
+bool IOHIDInputDevice::matches(NSDictionary* dict)
+{
+	NSDictionary* rest;
+
+	if (!IOHIDMatchUsagePairs(dict, m_properties, &rest))
+		return false;
+	return IOService::matches(rest);
 }
 
 NSDictionary* IOHIDInputDevice::matchingDictionary()

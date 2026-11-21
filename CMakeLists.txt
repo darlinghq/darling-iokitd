@@ -33,6 +33,10 @@ mig(iokitmig.defs)
 set(MIG_NO_XTRACE 1)
 mig(iokitmig32.defs)
 unset(MIG_NO_XTRACE)
+# Requests that have no XNU counterpart, shared with the client library
+set(MIG_NO_XTRACE 1)
+mig(iokitdarling.defs)
+unset(MIG_NO_XTRACE)
 mig(powermanagement.defs)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17")
@@ -66,6 +70,8 @@ set(iokitd_sources
 	src/IOPlatformExpertDevice.mm
 	src/IOServiceNotification.mm
 	src/IOHIDGamepadDevice.mm
+	src/IOHIDLibUserClient.mm
+	src/IOHIDDeviceMatching.mm
 	src/IOHIDInputDevice.mm
 	src/HostGamepad.c
 	src/HostInput.c
@@ -73,6 +79,7 @@ set(iokitd_sources
 	src/IOHostGPU.mm
 	${CMAKE_CURRENT_BINARY_DIR}/iokitmigServer.c
 	${CMAKE_CURRENT_BINARY_DIR}/iokitmig32Server.c
+	${CMAKE_CURRENT_BINARY_DIR}/iokitdarlingServer.c
 	src/iokitDispatch.cpp
 	${CMAKE_CURRENT_BINARY_DIR}/powermanagementServer.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../IOKitUser/IOCFSerialize.c
@@ -80,7 +87,7 @@ set(iokitd_sources
 )
 
 add_darling_executable(iokitd ${iokitd_sources})
-target_link_libraries(iokitd cxx bsm.0 CoreFoundation Foundation X11 XRandR Xext EGL GL IOSurface dbus)
+target_link_libraries(iokitd cxx bsm.0 CoreFoundation Foundation IOKit X11 XRandR Xext EGL GL IOSurface dbus)
 
 install(TARGETS iokitd DESTINATION libexec/darling/usr/sbin)
 install(FILES org.darlinghq.iokitd.plist DESTINATION libexec/darling/System/Library/LaunchDaemons)

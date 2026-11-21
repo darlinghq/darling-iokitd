@@ -29,7 +29,9 @@
 
 extern "C" {
 #include "iokitmigServer.h"
+#include "iokitdarlingServer.h"
 }
+#include <sys/fileport.h>
 #include "IOUserClientApple.h"
 #include "IOUserClient.h"
 #include <cstdio>
@@ -308,6 +310,21 @@ getTargetAndMethodForIndex(IOService **targetP, UInt32 index)
 }
 
 IOReturn
+IOUserClient::asyncExternalMethod(uint32_t selector, IOExternalMethodArguments * args,
+	mach_port_t wakePort, const uint64_t * reference, uint32_t referenceCount)
+{
+	if (MACH_PORT_VALID(wakePort))
+		mach_port_deallocate(mach_task_self(), wakePort);
+	return kIOReturnUnsupported;
+}
+
+IOReturn
+IOUserClient::clientMemory(uint32_t type, int * fd, uint64_t * size)
+{
+	return kIOReturnUnsupported;
+}
+
+IOReturn
 IOUserClient::externalMethod( uint32_t selector, IOExternalMethodArguments * args)
 {
 	IOReturn    err;
@@ -361,10 +378,15 @@ IOUserClient::externalMethod( uint32_t selector, IOExternalMethodArguments * arg
 	return err;
 }
 
-kern_return_t
-is_io_connect_method
+// IOConnectCallMethod() and IOConnectCallAsyncMethod(). A wakePort other than
+// MACH_PORT_NULL makes the call asynchronous.
+static kern_return_t
+connect_method
 (
 	mach_port_t connection,
+	mach_port_t wakePort,
+	const uint64_t * reference,
+	uint32_t referenceCount,
 	uint32_t selector,
 	io_scalar_inband64_t scalar_input,
 	mach_msg_type_number_t scalar_inputCnt,
@@ -383,7 +405,11 @@ is_io_connect_method
 	//CHECK( IOUserClient, connection, client );
 	IOUserClient* client = dynamic_cast<IOUserClient*>(IOObject::lookup(connection));
 	if (!client)
+	{
+		if (MACH_PORT_VALID(wakePort))
+			mach_port_deallocate(mach_task_self(), wakePort);
 		return kIOReturnBadArgument;
+	}
 
 	IOExternalMethodArguments args;
 	IOReturn ret;
@@ -393,6 +419,7 @@ is_io_connect_method
 	bzero(&args.__reserved[0], sizeof(args.__reserved));
 	args.__reservedA = 0;
 	args.version = kIOExternalMethodArgumentsCurrentVersion;
+	args.structureOutputDescriptorSize = 0;
 
 	args.selector = selector;
 
@@ -406,10 +433,10 @@ is_io_connect_method
 	args.structureInput = inband_input;
 	args.structureInputSize = inband_inputCnt;
 
-	if (ool_input && (ool_input_size <= sizeof(io_struct_inband_t))) {
-		return kIOReturnIPCError;
-	}
-	if (ool_output && (*ool_output_size <= sizeof(io_struct_inband_t))) {
+	if ((ool_input && (ool_input_size <= sizeof(io_struct_inband_t)))
+		|| (ool_output && (*ool_output_size <= sizeof(io_struct_inband_t)))) {
+		if (MACH_PORT_VALID(wakePort))
+			mach_port_deallocate(mach_task_self(), wakePort);
 		return kIOReturnIPCError;
 	}
 
@@ -436,7 +463,10 @@ is_io_connect_method
 	//args.structureOutputDescriptorSize = ool_output_size ? *ool_output_size : 0;
 
 	//IOStatisticsClientCall();
-	ret = client->externalMethod( selector, &args );
+	if (MACH_PORT_VALID(wakePort))
+		ret = client->asyncExternalMethod( selector, &args, wakePort, reference, referenceCount );
+	else
+		ret = client->externalMethod( selector, &args );
 
 	*scalar_outputCnt = args.scalarOutputCount;
 	*inband_outputCnt = args.structureOutputSize;
@@ -452,6 +482,60 @@ is_io_connect_method
 	return ret;
 }
 
+
+
+kern_return_t
+is_io_connect_method
+(
+	mach_port_t connection,
+	uint32_t selector,
+	io_scalar_inband64_t scalar_input,
+	mach_msg_type_number_t scalar_inputCnt,
+	io_struct_inband_t inband_input,
+	mach_msg_type_number_t inband_inputCnt,
+	mach_vm_address_t ool_input,
+	mach_vm_size_t ool_input_size,
+	io_struct_inband_t inband_output,
+	mach_msg_type_number_t *inband_outputCnt,
+	io_scalar_inband64_t scalar_output,
+	mach_msg_type_number_t *scalar_outputCnt,
+	mach_vm_address_t ool_output,
+	mach_vm_size_t *ool_output_size
+)
+{
+	return connect_method(connection, MACH_PORT_NULL, NULL, 0, selector,
+	    scalar_input, scalar_inputCnt, inband_input, inband_inputCnt, ool_input, ool_input_size,
+	    inband_output, inband_outputCnt, scalar_output, scalar_outputCnt, ool_output, ool_output_size);
+}
+
+kern_return_t
+is_io_connect_async_method
+(
+	mach_port_t connection,
+	mach_port_t wake_port,
+	io_async_ref64_t reference,
+	mach_msg_type_number_t referenceCnt,
+	uint32_t selector,
+	io_scalar_inband64_t scalar_input,
+	mach_msg_type_number_t scalar_inputCnt,
+	io_struct_inband_t inband_input,
+	mach_msg_type_number_t inband_inputCnt,
+	mach_vm_address_t ool_input,
+	mach_vm_size_t ool_input_size,
+	io_struct_inband_t inband_output,
+	mach_msg_type_number_t *inband_outputCnt,
+	io_scalar_inband64_t scalar_output,
+	mach_msg_type_number_t *scalar_outputCnt,
+	mach_vm_address_t ool_output,
+	mach_vm_size_t *ool_output_size
+)
+{
+	if (!MACH_PORT_VALID(wake_port))
+		return kIOReturnBadArgument;
+	return connect_method(connection, wake_port, reference, referenceCnt, selector,
+	    scalar_input, scalar_inputCnt, inband_input, inband_inputCnt, ool_input, ool_input_size,
+	    inband_output, inband_outputCnt, scalar_output, scalar_outputCnt, ool_output, ool_output_size);
+}
 
 kern_return_t
 is_io_connect_method_scalarI_scalarO(
@@ -566,4 +650,35 @@ is_io_connect_method_structureI_structureO(
 	           output, outputCount,
 	           NULL, &scalar_outputCnt,
 	           0, &ool_output_size);
+}
+
+// A client's request for the memory it wants to map (iokitdarling.defs): the
+// client library maps the file descriptor of the memory that a fileport carries.
+kern_return_t
+isd_io_connect_client_memory
+(
+	mach_port_t connection,
+	uint32_t memory_type,
+	mach_port_t * memory,
+	uint64_t * size
+)
+{
+	IOUserClient* client = dynamic_cast<IOUserClient*>(IOObject::lookup(connection));
+	int fd = -1;
+	uint64_t length = 0;
+	IOReturn ret;
+
+	*memory = MACH_PORT_NULL;
+	*size = 0;
+	if (!client)
+		return kIOReturnBadArgument;
+
+	ret = client->clientMemory(memory_type, &fd, &length);
+	if (ret != kIOReturnSuccess)
+		return ret;
+	if (fd < 0 || fileport_makeport(fd, memory) != 0)
+		return kIOReturnNoResources;
+
+	*size = length;
+	return kIOReturnSuccess;
 }

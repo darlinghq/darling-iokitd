@@ -435,31 +435,6 @@ kern_return_t is_io_connect_unmap_memory_from_task
     return KERN_NOT_SUPPORTED;
 }
 
-kern_return_t is_io_connect_async_method
-(
-	mach_port_t connection,
-	mach_port_t wake_port,
-	io_async_ref64_t reference,
-	mach_msg_type_number_t referenceCnt,
-	uint32_t selector,
-	io_scalar_inband64_t scalar_input,
-	mach_msg_type_number_t scalar_inputCnt,
-	io_struct_inband_t inband_input,
-	mach_msg_type_number_t inband_inputCnt,
-	mach_vm_address_t ool_input,
-	mach_vm_size_t ool_input_size,
-	io_struct_inband_t inband_output,
-	mach_msg_type_number_t *inband_outputCnt,
-	io_scalar_inband64_t scalar_output,
-	mach_msg_type_number_t *scalar_outputCnt,
-	mach_vm_address_t ool_output,
-	mach_vm_size_t *ool_output_size
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
 kern_return_t is_io_connect_set_notification_port_64
 (
 	mach_port_t connection,

@@ -21,6 +21,7 @@
 #include "IOUserClient.h"
 #include "IOInterestNotification.h"
 #include <algorithm>
+#include <cstring>
 #import <Foundation/NSArray.h>
 #import <Foundation/NSString.h>
 
@@ -94,7 +95,8 @@ IOReturn IOService::newUserClient(uint32_t type, IOUserClient** client)
 
 bool IOService::acceptsInterest(const char* type)
 {
-	return false;
+	// Every service has general interest messages, such as its termination
+	return std::strcmp(type, kIOGeneralInterest) == 0;
 }
 
 void IOService::addInterest(IOInterestNotification* notification)

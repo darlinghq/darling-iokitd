@@ -25,6 +25,7 @@
 
 extern "C" {
 #include "iokitmig32Server.h"
+#include "iokitdarlingServer.h"
 
 // The 64-bit subsystem. Its generated header is not included here because it
 // declares the same request types as the 32-bit one.
@@ -34,6 +35,8 @@ boolean_t iokit_server(mach_msg_header_t* request, mach_msg_header_t* reply);
 boolean_t iokitDispatch(mach_msg_header_t* request, mach_msg_header_t* reply)
 {
 	if (iokit32_server(request, reply))
+		return TRUE;
+	if (iokitdarling_server(request, reply))
 		return TRUE;
 	return iokit_server(request, reply);
 }
