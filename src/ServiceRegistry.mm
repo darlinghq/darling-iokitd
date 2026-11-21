@@ -28,6 +28,9 @@
 #include <vector>
 #include "IOIterator.h"
 #include "IOServiceNotification.h"
+#include "IOInterestNotification.h"
+#include <IOKit/IOMessage.h>
+#include <IOKit/IOKitKeys.h>
 #include "NotificationRequests.h"
 #include <algorithm>
 
@@ -88,6 +91,10 @@ void ServiceRegistry::unregisterService(IOService* service)
 	if (it == m_registeredServices.end())
 		return;
 	m_registeredServices.erase(it);
+
+	// What the clients that watch the service are told when it goes away
+	for (IOInterestNotification* interest : service->interests(kIOGeneralInterest))
+		interest->deliver(kIOMessageServiceIsTerminated, 0);
 
 	for (IOServiceNotification* notification : m_notifications)
 	{
