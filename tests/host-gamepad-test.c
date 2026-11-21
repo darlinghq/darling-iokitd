@@ -43,80 +43,145 @@ static int failures;
 
 #define CHECK(cond) do { if (!(cond)) { printf("FAIL line %d: %s\n", __LINE__, #cond); failures++; } } while (0)
 
+static void fill_standard(struct iokitd_gamepad* pad)
+{
+	memset(pad, 0, sizeof(*pad));
+	pad->has_gamepad_buttons = 1;
+	pad->layout = IOKITD_GAMEPAD_LAYOUT_STANDARD;
+	pad->button_count = 2;
+	pad->buttons[0].code = 0x130; pad->buttons[0].usage = 1;
+	pad->buttons[1].code = 0x131; pad->buttons[1].usage = 2;
+	pad->button_bits = 15;
+	pad->has_hat = 1;
+	pad->hat_x_min = pad->hat_y_min = -1;
+	pad->hat_x_max = pad->hat_y_max = 1;
+	pad->hat_logical_min = 1;
+	pad->axis_count = 2;
+	pad->axes[0] = (struct iokitd_gamepad_axis){ 0, 1, 0x30, -32768, 32767, 16 };
+	pad->axes[1] = (struct iokitd_gamepad_axis){ 2, 2, 0xc5, 0, 1023, 10 };
+	iokitd_gamepad_layout(pad);
+}
+
+static void fill_playstation(struct iokitd_gamepad* pad)
+{
+	memset(pad, 0, sizeof(*pad));
+	pad->has_gamepad_buttons = 1;
+	pad->layout = IOKITD_GAMEPAD_LAYOUT_PLAYSTATION;
+	pad->button_count = 2;
+	pad->buttons[0].code = 0x130; pad->buttons[0].usage = 2;
+	pad->buttons[1].code = 0x134; pad->buttons[1].usage = 1;
+	pad->button_bits = 14;
+	pad->has_hat = 1;
+	pad->hat_x_min = pad->hat_y_min = -1;
+	pad->hat_x_max = pad->hat_y_max = 1;
+	pad->hat_logical_min = 0;
+	pad->axis_count = 2;
+	/* in rank order: the left stick X, then the left trigger (Rx), which the report puts after the buttons */
+	pad->axes[0] = (struct iokitd_gamepad_axis){ 0, 1, 0x30, 0, 255, 8 };
+	pad->axes[1] = (struct iokitd_gamepad_axis){ 2, 1, 0x33, 0, 255, 8 };
+	iokitd_gamepad_layout(pad);
+}
+
 static int layout(void)
 {
 	struct iokitd_gamepad pad;
-	memset(&pad, 0, sizeof(pad));
-	pad.has_gamepad_buttons = 1;
-	pad.button_count = 2;
-	pad.buttons[0].code = 0x130; pad.buttons[0].usage = 1;
-	pad.buttons[1].code = 0x131; pad.buttons[1].usage = 2;
-	pad.has_hat = 1;
-	pad.hat_x_min = pad.hat_y_min = -1;
-	pad.hat_x_max = pad.hat_y_max = 1;
-	pad.hat_byte_offset = 1;
-	pad.axis_count = 3;
-	pad.axes[0] = (struct iokitd_gamepad_axis){ 0, 1, 0x30, -32768, 32767, 16, 2 };
-	pad.axes[1] = (struct iokitd_gamepad_axis){ 1, 1, 0x31, -32768, 32767, 16, 4 };
-	pad.axes[2] = (struct iokitd_gamepad_axis){ 2, 1, 0x32, 0, 255, 16, 6 };
-	pad.report_size = 8;
+	uint8_t descriptor[256];
 
-	static const uint8_t expected[] = {
+	/* Standard layout: axes, the hat (1 .. 8, null state 0), 15 contiguous button usages */
+	fill_standard(&pad);
+	static const uint8_t standard[] = {
 		0x05, 0x01, 0x09, 0x05, 0xa1, 0x01,
-		0x05, 0x09, 0x09, 0x01, 0x09, 0x02, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x02, 0x81, 0x02,
+		0x05, 0x01, 0x09, 0x30, 0x15, 0x00, 0x27, 0xff, 0xff, 0x00, 0x00, 0x75, 0x10, 0x95, 0x01, 0x81, 0x02,
+		0x05, 0x02, 0x0a, 0xc5, 0x00, 0x15, 0x00, 0x26, 0xff, 0x03, 0x75, 0x0a, 0x95, 0x01, 0x81, 0x02,
 		0x75, 0x01, 0x95, 0x06, 0x81, 0x03,
 		0x05, 0x01, 0x09, 0x39, 0x15, 0x01, 0x25, 0x08, 0x35, 0x00, 0x46, 0x3b, 0x01, 0x65, 0x14,
-		0x75, 0x04, 0x95, 0x01, 0x81, 0x42, 0x65, 0x00, 0x75, 0x04, 0x95, 0x01, 0x81, 0x03,
-		0x05, 0x01, 0x09, 0x30, 0x16, 0x00, 0x80, 0x26, 0xff, 0x7f, 0x75, 0x10, 0x95, 0x01, 0x81, 0x02,
-		0x05, 0x01, 0x09, 0x31, 0x16, 0x00, 0x80, 0x26, 0xff, 0x7f, 0x75, 0x10, 0x95, 0x01, 0x81, 0x02,
-		0x05, 0x01, 0x09, 0x32, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x10, 0x95, 0x01, 0x81, 0x02,
+		0x75, 0x04, 0x95, 0x01, 0x81, 0x42, 0x35, 0x00, 0x45, 0x00, 0x65, 0x00,
+		0x75, 0x01, 0x95, 0x04, 0x81, 0x03,
+		0x05, 0x09, 0x19, 0x01, 0x29, 0x0f, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x0f, 0x81, 0x02,
+		0x75, 0x01, 0x95, 0x01, 0x81, 0x03,
 		0xc0,
 	};
-	uint8_t descriptor[256];
 	int length = iokitd_gamepad_report_descriptor(&pad, descriptor, sizeof(descriptor));
 
-	CHECK(length == (int) sizeof(expected));
-	CHECK(length == (int) sizeof(expected) && memcmp(descriptor, expected, sizeof(expected)) == 0);
+	CHECK(length == (int) sizeof(standard));
+	CHECK(length == (int) sizeof(standard) && memcmp(descriptor, standard, sizeof(standard)) == 0);
 	CHECK(iokitd_gamepad_report_descriptor(&pad, descriptor, 10) == -1);
 	CHECK(iokitd_gamepad_primary_usage(&pad) == 5);
+	CHECK(pad.report_size == 7);
+	CHECK(pad.fields[0].bit_offset == 0 && pad.fields[1].bit_offset == 16 && pad.fields[2].bit_offset == 32
+		&& pad.fields[3].bit_offset == 40);
 
 	uint8_t report[8] = {0};
 
-	/* buttons */
+	/* buttons: usage n is bit n - 1 of the 15 button bits, which start at bit 40 */
 	CHECK(iokitd_gamepad_apply_event(&pad, report, 1, 0x131, 1) == 1);
-	CHECK(report[0] == 0x02);
+	CHECK(report[5] == 0x02);
 	CHECK(iokitd_gamepad_apply_event(&pad, report, 1, 0x131, 1) == 0);
 	CHECK(iokitd_gamepad_apply_event(&pad, report, 1, 0x130, 1) == 1);
-	CHECK(report[0] == 0x03);
+	CHECK(report[5] == 0x03);
 	CHECK(iokitd_gamepad_apply_event(&pad, report, 1, 0x131, 0) == 1);
-	CHECK(report[0] == 0x01);
+	CHECK(report[5] == 0x01);
 	CHECK(iokitd_gamepad_apply_event(&pad, report, 1, 0x13c, 1) == 0); /* not a button of this pad */
 
-	/* hat: the two axes arrive separately */
+	/* hat: the two axes arrive separately; centred is the null state 0, outside 1 .. 8 */
 	CHECK(iokitd_gamepad_apply_event(&pad, report, 3, 0x11, -1) == 1);
-	CHECK(report[1] == 1);                                              /* up */
+	CHECK(report[4] == 1);                                              /* up */
 	CHECK(iokitd_gamepad_apply_event(&pad, report, 3, 0x10, 1) == 1);
-	CHECK(report[1] == 2);                                              /* up-right */
+	CHECK(report[4] == 2);                                              /* up-right */
 	CHECK(iokitd_gamepad_apply_event(&pad, report, 3, 0x11, 0) == 1);
-	CHECK(report[1] == 3);                                              /* right */
+	CHECK(report[4] == 3);                                              /* right */
 	CHECK(iokitd_gamepad_apply_event(&pad, report, 3, 0x10, -1) == 1);
-	CHECK(report[1] == 7);                                              /* left */
+	CHECK(report[4] == 7);                                              /* left */
 	CHECK(iokitd_gamepad_apply_event(&pad, report, 3, 0x10, 0) == 1);
-	CHECK(report[1] == 0);                                              /* centred: null state */
+	CHECK(report[4] == 0);                                              /* centred: null state */
 
-	/* axes: little endian, clamped */
+	/* axes: the offset from the minimum, little endian, clamped */
 	CHECK(iokitd_gamepad_apply_event(&pad, report, 3, 0, -2) == 1);
-	CHECK(report[2] == 0xfe && report[3] == 0xff);
-	CHECK(iokitd_gamepad_apply_event(&pad, report, 3, 1, 100000) == 1);
-	CHECK(report[4] == 0xff && report[5] == 0x7f);
-	CHECK(iokitd_gamepad_apply_event(&pad, report, 3, 2, 200) == 1);
-	CHECK(report[6] == 200 && report[7] == 0);
+	CHECK(report[0] == 0xfe && report[1] == 0x7f);
+	CHECK(iokitd_gamepad_apply_event(&pad, report, 3, 0, 100000) == 1);
+	CHECK(report[0] == 0xff && report[1] == 0xff);
+	CHECK(iokitd_gamepad_apply_event(&pad, report, 3, 2, 1000) == 1);  /* 10 bits */
+	CHECK(report[2] == 0xe8 && report[3] == 0x03);
 	CHECK(iokitd_gamepad_apply_event(&pad, report, 3, 2, -5) == 1);
-	CHECK(report[6] == 0 && report[7] == 0);
+	CHECK(report[2] == 0 && report[3] == 0);
 
 	/* a joystick without the gamepad block */
 	pad.has_gamepad_buttons = 0;
 	CHECK(iokitd_gamepad_primary_usage(&pad) == 4);
+
+	/* PlayStation layout: the hat is 0 .. 7 (null state 8) and shares its byte with the buttons;
+	 * the left trigger (Rx) follows the buttons */
+	fill_playstation(&pad);
+	static const uint8_t playstation[] = {
+		0x05, 0x01, 0x09, 0x05, 0xa1, 0x01,
+		0x05, 0x01, 0x09, 0x30, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x01, 0x81, 0x02,
+		0x05, 0x01, 0x09, 0x39, 0x15, 0x00, 0x25, 0x07, 0x35, 0x00, 0x46, 0x3b, 0x01, 0x65, 0x14,
+		0x75, 0x04, 0x95, 0x01, 0x81, 0x42, 0x35, 0x00, 0x45, 0x00, 0x65, 0x00,
+		0x05, 0x09, 0x19, 0x01, 0x29, 0x0e, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x0e, 0x81, 0x02,
+		0x75, 0x01, 0x95, 0x06, 0x81, 0x03,
+		0x05, 0x01, 0x09, 0x33, 0x15, 0x00, 0x26, 0xff, 0x00, 0x75, 0x08, 0x95, 0x01, 0x81, 0x02,
+		0xc0,
+	};
+	length = iokitd_gamepad_report_descriptor(&pad, descriptor, sizeof(descriptor));
+	CHECK(length == (int) sizeof(playstation));
+	CHECK(length == (int) sizeof(playstation) && memcmp(descriptor, playstation, sizeof(playstation)) == 0);
+	CHECK(pad.report_size == 5);
+
+	memset(report, 0, sizeof(report));
+	report[1] = 0x08;                                                   /* the centred hat, as the initial report has it */
+	CHECK(iokitd_gamepad_apply_event(&pad, report, 3, 0x11, -1) == 1);
+	CHECK((report[1] & 0x0f) == 0);                                     /* up is 0 */
+	CHECK(iokitd_gamepad_apply_event(&pad, report, 3, 0x10, 1) == 1);
+	CHECK((report[1] & 0x0f) == 1);                                     /* up-right */
+	CHECK(iokitd_gamepad_apply_event(&pad, report, 3, 0x10, 0) == 1);
+	CHECK(iokitd_gamepad_apply_event(&pad, report, 3, 0x11, 0) == 1);
+	CHECK((report[1] & 0x0f) == 8);                                     /* centred */
+	CHECK(iokitd_gamepad_apply_event(&pad, report, 1, 0x130, 1) == 1);  /* Cross is usage 2: bit 13 */
+	CHECK(report[1] == 0x28);
+	CHECK(iokitd_gamepad_apply_event(&pad, report, 1, 0x134, 1) == 1);  /* Square is usage 1: bit 12 */
+	CHECK(report[1] == 0x38);
+	CHECK(iokitd_gamepad_apply_event(&pad, report, 3, 2, 255) == 1);
+	CHECK(report[4] == 0xff);
 
 	printf(failures ? "layout: FAILED\n" : "layout: ok\n");
 	return failures != 0;
