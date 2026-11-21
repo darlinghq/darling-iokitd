@@ -67,10 +67,27 @@
  *    degrees, physical 0 .. 315, null state when centred. Standard and
  *    joystick layout: logical 1 .. 8 (up is 1, clockwise), null state 0.
  *    PlayStation layout: logical 0 .. 7 (up is 0), null state 8.
- * The input report has no report ID. Fields follow in this order, each
+ * The input report has no report ID, unless the controller can rumble (see
+ * below). Fields follow in this order, each
  * padded to a byte boundary except the PlayStation hat (the buttons share
  * its byte): the axes (the PlayStation layout puts its triggers after the
  * buttons), the hat, the buttons.
+ *
+ * Rumble. A controller with the evdev force-feedback effect FF_RUMBLE also
+ * publishes the output report that controllers of its layout have, and its
+ * input report then carries report ID 1, as those controllers' do:
+ *  - Standard layout: output report 3 of the Xbox One controller, 8 bytes:
+ *    byte 0 bits 0 .. 3 enable the actuators (bit 0 the weak motor, bit 1
+ *    the strong motor, 2 and 3 the triggers), bytes 1 .. 4 the magnitudes
+ *    0 .. 100 (index 2 the strong motor, 3 the weak motor, 0 and 1 the
+ *    trigger motors), byte 5 the duration and byte 6 the start delay in
+ *    10 ms units, byte 7 the loop count.
+ *  - PlayStation layout: output report 5 (31 bytes, 77 bytes as report 17
+ *    for a Bluetooth controller) of the DualShock 4: bit 0 of the first
+ *    flags byte enables rumble, followed by the weak and the strong motor
+ *    strength 0 .. 255. Other fields (light bar) are ignored.
+ * The motors without an evdev counterpart (triggers) are ignored. The
+ * output report 0 magnitudes drive one FF_RUMBLE effect of the node.
  */
 
 #ifndef IOKITD_HOST_GAMEPAD_H
@@ -93,6 +110,13 @@ enum iokitd_gamepad_layout
 	IOKITD_GAMEPAD_LAYOUT_JOYSTICK,
 	IOKITD_GAMEPAD_LAYOUT_STANDARD,
 	IOKITD_GAMEPAD_LAYOUT_PLAYSTATION,
+};
+
+enum iokitd_gamepad_output
+{
+	IOKITD_GAMEPAD_OUTPUT_NONE,
+	IOKITD_GAMEPAD_OUTPUT_XBOX,        /* report 3 */
+	IOKITD_GAMEPAD_OUTPUT_DUALSHOCK,   /* report 5, or 17 on Bluetooth */
 };
 
 enum iokitd_gamepad_field_kind
@@ -151,8 +175,40 @@ struct iokitd_gamepad
 	int field_count;
 	struct iokitd_gamepad_field fields[IOKITD_GAMEPAD_MAX_FIELDS];
 
-	uint16_t report_size;    /* bytes */
+	uint16_t report_size;    /* bytes, without the report ID */
+
+	int has_rumble;          /* FF_RUMBLE */
+	uint8_t input_report_id; /* 0, or 1 for a controller that can rumble */
+	uint8_t output_kind;     /* enum iokitd_gamepad_output */
+	uint8_t output_report_id;
+	uint16_t output_size;    /* bytes, without the report ID */
 };
+
+/* What an output report asks of the rumble motors */
+struct iokitd_rumble
+{
+	uint16_t strong, weak;   /* evdev magnitudes 0 .. 65535 */
+	uint16_t length_ms;      /* 0: until stopped */
+	uint16_t delay_ms;
+};
+
+/*
+ * Reads the rumble part of an output report (data and length without the
+ * report ID; shorter data is padded with zeros). Returns 1 and fills *out
+ * (all zero when the report enables no motor of an Xbox One controller), 0 if
+ * the report does not address the motors (a DualShock 4 report without the
+ * rumble flag), or -1 if it is not a report of this controller.
+ */
+int iokitd_gamepad_decode_output(const struct iokitd_gamepad* pad, const uint8_t* data, size_t length,
+	struct iokitd_rumble* out);
+
+/*
+ * Plays the effect on the node's fd, which must be open for writing: the
+ * first call uploads an effect (*effect_id is -1 before, the kernel's id
+ * after), later calls update it. All-zero strengths stop it. Returns 0, or -1
+ * with errno set (EBADF when fd is read-only).
+ */
+int iokitd_gamepad_rumble(int fd, int* effect_id, const struct iokitd_rumble* rumble);
 
 /*
  * Fixes the report layout (the fields, their offsets and report_size) once

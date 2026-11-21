@@ -46,6 +46,8 @@
 #define BTN_LEFT 0x110
 #define BTN_EXTRA 0x114
 #define KEY_CNT 0x300
+#define EV_LED 0x11
+#define LED_CNT 0x10
 
 #define IOC_READ_DIR 2u
 #define IOC_ENCODE(dir, type, nr, size) \
@@ -53,6 +55,7 @@
 #define EVIOCGID IOC_ENCODE(IOC_READ_DIR, 'E', 0x02, 8)
 #define EVIOCGNAME(len) IOC_ENCODE(IOC_READ_DIR, 'E', 0x06, len)
 #define EVIOCGUNIQ(len) IOC_ENCODE(IOC_READ_DIR, 'E', 0x08, len)
+#define EVIOCGLED(len) IOC_ENCODE(IOC_READ_DIR, 'E', 0x19, len)
 #define EVIOCGKEY(len) IOC_ENCODE(IOC_READ_DIR, 'E', 0x18, len)
 #define EVIOCGBIT(ev, len) IOC_ENCODE(IOC_READ_DIR, 'E', 0x20 + (ev), len)
 
@@ -148,6 +151,7 @@ int iokitd_input_probe(const char* path, struct iokitd_input* dev)
 	{
 		dev->kind = IOKITD_INPUT_KEYBOARD;
 		dev->report_size = IOKITD_KEYBOARD_REPORT_SIZE;
+		dev->has_leds = bit_is_set(ev_bits, EV_LED);
 	}
 	else if (bit_is_set(ev_bits, EV_REL)
 		&& ioctl(fd, EVIOCGBIT(EV_REL, sizeof(rel_bits)), rel_bits) >= 0
@@ -205,6 +209,31 @@ int iokitd_input_list(const char* directory, char paths[][64], int max)
 int iokitd_input_open(const char* path)
 {
 	return iokitd_gamepad_open(path);
+}
+
+uint8_t iokitd_input_led_state(int fd)
+{
+	uint8_t leds[LED_CNT / 8] = {0};
+
+	if (ioctl(fd, EVIOCGLED(sizeof(leds)), leds) < 0)
+		return 0;
+	return leds[0] & ((1u << IOKITD_KEYBOARD_LED_COUNT) - 1);
+}
+
+int iokitd_input_set_leds(int fd, uint8_t leds)
+{
+	struct evdev_event events[IOKITD_KEYBOARD_LED_COUNT + 1];
+
+	memset(events, 0, sizeof(events));
+	for (int i = 0; i < IOKITD_KEYBOARD_LED_COUNT; i++)
+	{
+		events[i].type = EV_LED;
+		events[i].code = (uint16_t) i;
+		events[i].value = (leds >> i) & 1;
+	}
+	events[IOKITD_KEYBOARD_LED_COUNT].type = EV_SYN;
+	events[IOKITD_KEYBOARD_LED_COUNT].code = SYN_REPORT;
+	return write(fd, events, sizeof(events)) == (ssize_t) sizeof(events) ? 0 : -1;
 }
 
 static void set_bit(uint8_t* report, int bit, int on)
@@ -442,6 +471,21 @@ int iokitd_input_report_descriptor(const struct iokitd_input* dev, uint8_t* out,
 		REPORT_SIZE(&w, 1);
 		REPORT_COUNT(&w, IOKITD_KEYBOARD_LAST_USAGE - IOKITD_KEYBOARD_FIRST_USAGE + 1);
 		INPUT(&w, 0x02);
+
+		if (dev->has_leds)
+		{
+			USAGE_PAGE(&w, 0x08);   /* LEDs: Num Lock .. Kana */
+			USAGE_MIN(&w, 1);
+			USAGE_MAX(&w, IOKITD_KEYBOARD_LED_COUNT);
+			LOGICAL_MIN(&w, 0);
+			LOGICAL_MAX(&w, 1);
+			REPORT_SIZE(&w, 1);
+			REPORT_COUNT(&w, IOKITD_KEYBOARD_LED_COUNT);
+			put_item(&w, 0x90, 0x02);   /* Output: Data, Variable, Absolute */
+			REPORT_SIZE(&w, 1);
+			REPORT_COUNT(&w, 8 - IOKITD_KEYBOARD_LED_COUNT);
+			put_item(&w, 0x90, 0x03);   /* Constant */
+		}
 	}
 	else
 	{
@@ -489,6 +533,8 @@ int iokitd_input_report_descriptor(const struct iokitd_input* dev, uint8_t* out,
 #else /* !__LP64__ */
 
 uint16_t iokitd_input_keyboard_usage(int code) { return 0; }
+uint8_t iokitd_input_led_state(int fd) { return 0; }
+int iokitd_input_set_leds(int fd, uint8_t leds) { return -1; }
 int iokitd_input_probe(const char* path, struct iokitd_input* dev) { return -1; }
 int iokitd_input_list(const char* directory, char paths[][64], int max) { return 0; }
 int iokitd_input_open(const char* path) { return -1; }

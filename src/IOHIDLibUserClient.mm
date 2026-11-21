@@ -226,9 +226,9 @@ IOReturn IOHIDLibUserClient::externalMethod(uint32_t selector, IOExternalMethodA
 		case kIOHIDLibSelectorReleaseReport:
 			return kIOReturnSuccess;
 		case kIOHIDLibSelectorPostElementValues:
+			return postElementValues(args);
 		case kIOHIDLibSelectorSetReport:
-			// The controllers have no output or feature elements
-			return kIOReturnUnsupported;
+			return setReport(args);
 	}
 	return kIOReturnBadArgument;
 }
@@ -236,6 +236,17 @@ IOReturn IOHIDLibUserClient::externalMethod(uint32_t selector, IOExternalMethodA
 IOReturn IOHIDLibUserClient::asyncExternalMethod(uint32_t selector, IOExternalMethodArguments* args,
 	mach_port_t wakePort, const uint64_t* reference, uint32_t referenceCount)
 {
+	if (selector == kIOHIDLibSelectorSetReport || selector == kIOHIDLibSelectorGetReport)
+	{
+		// The report is exchanged before this returns, so the reply carries the result. The completion
+		// message to the wake port is not sent: its layout depends on whether the client is a 32-bit
+		// process, which a request does not tell, and the IOHIDLib plug-in does not dispatch it.
+		IOReturn result = externalMethod(selector, args);
+
+		if (MACH_PORT_VALID(wakePort))
+			mach_port_deallocate(mach_task_self(), wakePort);
+		return result;
+	}
 	if (selector != kIOHIDLibSelectorSetQueueAsyncPort)
 		return IOUserClient::asyncExternalMethod(selector, args, wakePort, reference, referenceCount);
 
@@ -283,7 +294,6 @@ IOReturn IOHIDLibUserClient::updateElementValues(IOExternalMethodArguments* args
 	size_t count = args->structureInputSize / sizeof(uint32_t);
 	uint8_t* out = static_cast<uint8_t*>(args->structureOutput);
 	size_t used = 0;
-	const std::vector<uint8_t>& report = m_device->hidReport();
 
 	for (size_t i = 0; i < count; i++)
 	{
@@ -292,7 +302,9 @@ IOReturn IOHIDLibUserClient::updateElementValues(IOExternalMethodArguments* args
 			return kIOReturnBadArgument;
 
 		const IOHIDElementDescription& e = m_device->hidElements()[ref->description];
-		uint32_t length = e.reportHandler ? alignWord(report.size()) : 4;
+		std::vector<uint8_t> handlerBytes = e.reportHandler ? inputReportWithID() : std::vector<uint8_t>();
+		bool blob = e.wire.size > 32 && !e.reportHandler;
+		uint32_t length = e.reportHandler ? alignWord(handlerBytes.size()) : blob ? alignWord(e.wire.valueSize) : 4;
 		size_t total = IOHIDLIB_ELEMENT_VALUE_HEADER + length;
 
 		if (e.wire.type == kIOHIDLibTypeCollection)
@@ -310,28 +322,144 @@ IOReturn IOHIDLibUserClient::updateElementValues(IOExternalMethodArguments* args
 		value->timestampHigh = uint32_t(stamp >> 32);
 		value->generation = m_generation;
 		if (e.reportHandler)
-			std::memcpy(value->value, report.data(), report.size());
+			std::memcpy(value->value, handlerBytes.data(), handlerBytes.size());
+		else if (blob)
+		{
+			// A long value (more than 32 bits): the bytes of the report, as is
+			const std::vector<uint8_t>& source = reportOf(e);
+			size_t first = e.bitOffset / 8;
+			for (size_t b = 0; b < e.wire.valueSize && first + b < source.size(); b++)
+				reinterpret_cast<uint8_t*>(value->value)[b] = source[first + b];
+		}
 		else
-			value->value[0] = uint32_t(valueOf(*ref, report));
+			value->value[0] = uint32_t(valueOf(*ref, reportOf(e)));
 		used += total;
 	}
 	args->structureOutputSize = used;
 	return kIOReturnSuccess;
 }
 
+const std::vector<uint8_t>& IOHIDLibUserClient::reportOf(const IOHIDElementDescription& e) const
+{
+	static const std::vector<uint8_t> none;
+
+	if (e.wire.type == kIOHIDLibTypeOutput)
+	{
+		const std::vector<uint8_t>* report = m_device->hidOutputReport(e.wire.reportID);
+		return report ? *report : none;
+	}
+	return m_device->hidReport();
+}
+
+std::vector<uint8_t> IOHIDLibUserClient::inputReportWithID() const
+{
+	std::vector<uint8_t> bytes;
+	uint32_t id = m_device->hidInputReportID();
+
+	if (id)
+		bytes.push_back(uint8_t(id));
+	bytes.insert(bytes.end(), m_device->hidReport().begin(), m_device->hidReport().end());
+	return bytes;
+}
+
 IOReturn IOHIDLibUserClient::getReport(IOExternalMethodArguments* args)
 {
-	// Input report 0 is the controller's current state. Reports have no other
-	// source: the controllers have no feature reports.
-	const std::vector<uint8_t>& report = m_device->hidReport();
+	// Input: the controller's or keyboard's current state. Output: what was
+	// last sent. A report that has a report ID comes with it in front.
+	if (args->scalarInputCount < 2)
+		return kIOReturnBadArgument;
 
-	if (args->scalarInputCount < 2 || args->scalarInput[0] != 0 || args->scalarInput[1] != 0)
+	uint32_t type = uint32_t(args->scalarInput[0]), id = uint32_t(args->scalarInput[1]);
+	std::vector<uint8_t> bytes;
+
+	if (type == kIOHIDLibReportInput && id == m_device->hidInputReportID())
+		bytes = inputReportWithID();
+	else if (type == kIOHIDLibReportOutput && m_device->hidOutputReport(id))
+	{
+		if (id)
+			bytes.push_back(uint8_t(id));
+		bytes.insert(bytes.end(), m_device->hidOutputReport(id)->begin(), m_device->hidOutputReport(id)->end());
+	}
+	else
 		return kIOReturnUnsupported;
-	if (args->structureOutputSize < report.size())
+
+	if (args->structureOutputSize < bytes.size())
 		return kIOReturnNoSpace;
-	std::memcpy(args->structureOutput, report.data(), report.size());
-	args->structureOutputSize = report.size();
+	std::memcpy(args->structureOutput, bytes.data(), bytes.size());
+	args->structureOutputSize = bytes.size();
 	return kIOReturnSuccess;
+}
+
+IOReturn IOHIDLibUserClient::setReport(IOExternalMethodArguments* args)
+{
+	if (args->scalarInputCount < 2)
+		return kIOReturnBadArgument;
+
+	uint32_t type = uint32_t(args->scalarInput[0]), id = uint32_t(args->scalarInput[1]);
+	const uint8_t* data = static_cast<const uint8_t*>(args->structureInput);
+	size_t length = args->structureInputSize;
+
+	if (type != kIOHIDLibReportOutput && type != kIOHIDLibReportFeature)
+		return kIOReturnBadArgument;
+	// A report with an ID comes with it as its first byte
+	if (id)
+	{
+		if (length < 1 || data[0] != id)
+			return kIOReturnBadArgument;
+		data++;
+		length--;
+	}
+	return m_device->hidSetReport(type, id, data, length);
+}
+
+IOReturn IOHIDLibUserClient::postElementValues(IOExternalMethodArguments* args)
+{
+	// One element value: the cookie, the length in bytes and the value as 32-bit words
+	if (args->structureInputSize < 2 * sizeof(uint32_t))
+		return kIOReturnBadArgument;
+
+	const uint32_t* input = static_cast<const uint32_t*>(args->structureInput);
+	const ElementRef* ref = find(input[0]);
+	uint32_t length = input[1];
+
+	if (!ref || length > args->structureInputSize - 2 * sizeof(uint32_t))
+		return kIOReturnBadArgument;
+
+	const IOHIDElementDescription& e = m_device->hidElements()[ref->description];
+	const std::vector<uint8_t>* current = e.wire.type == kIOHIDLibTypeOutput ? m_device->hidOutputReport(e.wire.reportID) : nullptr;
+
+	if (e.wire.type != kIOHIDLibTypeOutput && e.wire.type != kIOHIDLibTypeFeature)
+		return kIOReturnBadArgument;
+	if (!current)
+		return kIOReturnUnsupported;
+
+	std::vector<uint8_t> report = *current;
+	const uint8_t* bytes = reinterpret_cast<const uint8_t*>(input + 2);
+
+	if (e.wire.size > 32)
+	{
+		size_t first = e.bitOffset / 8;
+		for (size_t b = 0; b < length && b < e.wire.valueSize && first + b < report.size(); b++)
+			report[first + b] = bytes[b];
+	}
+	else
+	{
+		uint32_t word = 0;
+		std::memcpy(&word, bytes, std::min<uint32_t>(length, 4));
+		uint32_t first = e.bitOffset + ref->index * e.wire.reportSize;
+		for (uint32_t i = 0; i < e.wire.size; i++)
+		{
+			uint32_t bit = first + i;
+			if (bit / 8 >= report.size())
+				break;
+			if ((word >> i) & 1)
+				report[bit / 8] |= uint8_t(1u << (bit % 8));
+			else
+				report[bit / 8] &= uint8_t(~(1u << (bit % 8)));
+		}
+	}
+	return m_device->hidSetReport(e.wire.type == kIOHIDLibTypeOutput ? kIOHIDLibReportOutput : kIOHIDLibReportFeature,
+		e.wire.reportID, report.data(), report.size());
 }
 
 IOReturn IOHIDLibUserClient::createQueue(IOExternalMethodArguments* args)
@@ -477,16 +605,24 @@ void IOHIDLibUserClient::reportChanged(const std::vector<uint8_t>& previous, con
 	for (uint32_t cookie = 0; cookie < m_cookies.size(); cookie++)
 	{
 		const ElementRef& ref = m_cookies[cookie];
-		if (ref.description == size_t(-1) || elements[ref.description].reportHandler
-			|| elements[ref.description].wire.type == kIOHIDLibTypeCollection)
+		if (ref.description == size_t(-1))
 			continue;
-		if (valueOf(ref, previous) != valueOf(ref, current))
+
+		const IOHIDLibElement& wire = elements[ref.description].wire;
+		if (elements[ref.description].reportHandler || wire.type == kIOHIDLibTypeCollection
+			|| wire.type == kIOHIDLibTypeOutput || wire.type == kIOHIDLibTypeFeature)
+			continue;
+
+		int64_t value = valueOf(ref, current);
+		// A relative value (mouse motion) is an event in every report that carries a motion
+		if (valueOf(ref, previous) != value || ((wire.flags & kIOHIDLibFlagsRelative) && value != 0))
 		{
 			changed.insert(cookie);
 			m_times[cookie] = stamp;
 		}
 	}
 
+	std::vector<uint8_t> withID = inputReportWithID();
 	for (auto& [token, q] : m_queues)
 	{
 		if (!q->started)
@@ -496,7 +632,7 @@ void IOHIDLibUserClient::reportChanged(const std::vector<uint8_t>& previous, con
 			const ElementRef* ref = find(cookie);
 			if (elements[ref->description].reportHandler)
 			{
-				enqueue(*q, cookie, stamp, m_generation, current.data(), current.size(), 0);
+				enqueue(*q, cookie, stamp, m_generation, withID.data(), withID.size(), 0);
 			}
 			else if (changed.count(cookie))
 			{

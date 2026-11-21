@@ -37,6 +37,7 @@
 #include <poll.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -49,6 +50,7 @@ static int failures;
 
 static int layout(void)
 {
+	signal(SIGPIPE, SIG_IGN);
 	uint8_t descriptor[256];
 
 	/* keyboard */
@@ -68,6 +70,34 @@ static int layout(void)
 	CHECK(length == (int) sizeof(kbd_expected) && memcmp(descriptor, kbd_expected, sizeof(kbd_expected)) == 0);
 	CHECK(iokitd_input_report_descriptor(&kbd, descriptor, 10) == -1);
 	CHECK(iokitd_input_primary_usage(&kbd) == 6);
+
+	/* a keyboard with LEDs has an output report: five LED bits and three bits of padding */
+	kbd.has_leds = 1;
+	static const uint8_t led_tail[] = {
+		0x05, 0x08, 0x19, 0x01, 0x29, 0x05, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x05, 0x91, 0x02,
+		0x75, 0x01, 0x95, 0x03, 0x91, 0x03,
+		0xc0,
+	};
+	length = iokitd_input_report_descriptor(&kbd, descriptor, sizeof(descriptor));
+	CHECK(length == (int) (sizeof(kbd_expected) - 1 + sizeof(led_tail)));
+	CHECK(length > (int) sizeof(led_tail) && memcmp(descriptor + length - sizeof(led_tail), led_tail, sizeof(led_tail)) == 0);
+	CHECK(memcmp(descriptor, kbd_expected, sizeof(kbd_expected) - 1) == 0);
+
+	/* setting the LEDs writes the five LED events and a SYN_REPORT, bit n for LED n */
+	int fds[2];
+	CHECK(pipe(fds) == 0);
+	CHECK(iokitd_input_set_leds(fds[1], 0x25) == 0);                     /* Num Lock, Scroll Lock; bit 5 is padding */
+	uint8_t raw[7 * 24];
+	CHECK(read(fds[0], raw, sizeof(raw)) == 6 * 24);
+	static const int expect[5] = { 1, 0, 1, 0, 0 };
+	for (int i = 0; i < 5; i++)
+		CHECK(*(uint16_t*) (raw + i * 24 + 16) == 0x11 && *(uint16_t*) (raw + i * 24 + 18) == i
+			&& *(int32_t*) (raw + i * 24 + 20) == expect[i]);
+	CHECK(*(uint16_t*) (raw + 5 * 24 + 16) == 0 && *(uint16_t*) (raw + 5 * 24 + 18) == 0);
+	close(fds[0]);
+	CHECK(iokitd_input_set_leds(fds[1], 0) == -1);                       /* the reader is gone */
+	close(fds[1]);
+	kbd.has_leds = 0;
 
 	/* the usage of a key follows its position, not its evdev code */
 	CHECK(iokitd_input_keyboard_usage(30) == 0x04);   /* A */

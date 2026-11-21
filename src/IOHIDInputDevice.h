@@ -23,6 +23,7 @@
 #include "IOService.h"
 #include "ServiceRegistry.h"
 #include "HostInput.h"
+#include "IOHIDLibUserClient.h"
 #include <string>
 #include <vector>
 
@@ -36,7 +37,7 @@
 // publishes the keyboards and mice it can read, and unpublishes them when the
 // node disappears or reading fails. Without permission to read the nodes
 // nothing is published, which is not an error.
-class IOHIDInputDevice : public IOService
+class IOHIDInputDevice : public IOService, public IOHIDReportDevice
 {
 public:
 	explicit IOHIDInputDevice(const struct iokitd_input& dev);
@@ -47,6 +48,13 @@ public:
 	NSDictionary* matchingDictionary() override;
 	bool matches(NSDictionary* dict) override;
 	NSDictionary* getProperties() override;
+	IOReturn newUserClient(uint32_t type, IOUserClient** client) override;
+
+	// IOHIDReportDevice
+	const std::vector<IOHIDElementDescription>& hidElements() const override { return m_elements; }
+	const std::vector<uint8_t>& hidReport() const override { return m_report; }
+	const std::vector<uint8_t>* hidOutputReport(uint32_t reportID) const override;
+	IOReturn hidSetReport(uint32_t type, uint32_t reportID, const uint8_t* data, size_t length) override;
 
 	std::string path() const { return m_dev.path; }
 	const struct iokitd_input& description() const { return m_dev; }
@@ -59,6 +67,9 @@ public:
 private:
 	struct iokitd_input m_dev;
 	std::vector<uint8_t> m_report;
+	std::vector<uint8_t> m_previous;  // the report before the frame being told
+	std::vector<uint8_t> m_leds;      // the LED output report, one byte, if the keyboard has LEDs
+	std::vector<IOHIDElementDescription> m_elements;
 	NSDictionary* m_properties;
 	int m_fd = -1;
 	dispatch_source_t m_readSource = nullptr;

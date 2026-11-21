@@ -69,6 +69,9 @@
 #define BTN_DPAD_UP 0x220
 #define BTN_DPAD_RIGHT 0x223
 #define KEY_CNT 0x300
+#define EV_FF 0x15
+#define FF_RUMBLE 0x50
+#define FF_CNT 0x80
 
 #define INPUT_PROP_ACCELEROMETER 0x06
 #define INPUT_PROP_DIRECT 0x01
@@ -84,6 +87,8 @@
 #define EVIOCGPROP(len) IOC_ENCODE(IOC_READ_DIR, 'E', 0x09, len)
 #define EVIOCGKEY(len) IOC_ENCODE(IOC_READ_DIR, 'E', 0x18, len)
 #define EVIOCGBIT(ev, len) IOC_ENCODE(IOC_READ_DIR, 'E', 0x20 + (ev), len)
+#define IOC_WRITE_DIR 1u
+#define EVIOCSFF IOC_ENCODE(IOC_WRITE_DIR, 'E', 0x80, 48)
 #define EVIOCGABS(abs) IOC_ENCODE(IOC_READ_DIR, 'E', 0x40 + (abs), 24)
 
 #if defined(__LP64__)
@@ -453,6 +458,29 @@ int iokitd_gamepad_probe(const char* path, struct iokitd_gamepad* pad)
 	qsort(pad->axes, pad->axis_count, sizeof(pad->axes[0]), cmp_axis);
 	iokitd_gamepad_layout(pad);
 
+	{
+		uint8_t ff_bits[FF_CNT / 8] = {0};
+
+		pad->has_rumble = bit_is_set(ev_bits, EV_FF)
+			&& ioctl(fd, EVIOCGBIT(EV_FF, sizeof(ff_bits)), ff_bits) >= 0 && bit_is_set(ff_bits, FF_RUMBLE);
+		if (pad->has_rumble && pad->layout == IOKITD_GAMEPAD_LAYOUT_STANDARD)
+		{
+			pad->output_kind = IOKITD_GAMEPAD_OUTPUT_XBOX;
+			pad->output_report_id = 3;
+			pad->output_size = 8;
+		}
+		else if (pad->has_rumble && pad->layout == IOKITD_GAMEPAD_LAYOUT_PLAYSTATION)
+		{
+			int bluetooth = pad->bustype == 0x05;
+
+			pad->output_kind = IOKITD_GAMEPAD_OUTPUT_DUALSHOCK;
+			pad->output_report_id = bluetooth ? 0x11 : 0x05;
+			pad->output_size = bluetooth ? 77 : 31;
+		}
+		if (pad->output_kind != IOKITD_GAMEPAD_OUTPUT_NONE)
+			pad->input_report_id = 1;
+	}
+
 	if (ioctl(fd, EVIOCGNAME(sizeof(pad->name) - 1), pad->name) < 0)
 		pad->name[0] = '\0';
 	if (ioctl(fd, EVIOCGUNIQ(sizeof(pad->serial) - 1), pad->serial) < 0)
@@ -508,7 +536,95 @@ int iokitd_gamepad_list(const char* directory, char paths[][64], int max)
 
 int iokitd_gamepad_open(const char* path)
 {
-	return open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+	/* Writing is needed for force feedback; a node that cannot be written is still read */
+	int fd = open(path, O_RDWR | O_NONBLOCK | O_CLOEXEC);
+
+	return fd >= 0 ? fd : open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+}
+
+int iokitd_gamepad_decode_output(const struct iokitd_gamepad* pad, const uint8_t* data, size_t length,
+	struct iokitd_rumble* out)
+{
+	uint8_t report[96] = {0};
+
+	if (pad->output_kind == IOKITD_GAMEPAD_OUTPUT_NONE || length > pad->output_size || length > sizeof(report))
+		return -1;
+	memcpy(report, data, length);
+	memset(out, 0, sizeof(*out));
+
+	if (pad->output_kind == IOKITD_GAMEPAD_OUTPUT_XBOX)
+	{
+		/* magnitudes 0 .. 100; the duration is in 10 ms, for each of the loops */
+		unsigned strong = (report[0] & 0x02) ? report[3] : 0, weak = (report[0] & 0x01) ? report[4] : 0;
+		unsigned long total = (unsigned long) report[5] * (report[7] ? report[7] : 1) * 10;
+
+		/* No actuator enabled: nothing is driven */
+		if (!(report[0] & 0x03))
+			return 1;
+		out->strong = (uint16_t) ((strong > 100 ? 100 : strong) * 65535 / 100);
+		out->weak = (uint16_t) ((weak > 100 ? 100 : weak) * 65535 / 100);
+		out->length_ms = (uint16_t) (total > 65535 ? 65535 : total);
+		out->delay_ms = (uint16_t) (report[6] * 10);
+		return 1;
+	}
+	else
+	{
+		/* The Bluetooth report has two bytes in front of the shared part */
+		const uint8_t* common = report + (pad->output_report_id == 0x11 ? 2 : 0);
+
+		if (!(common[0] & 0x01))
+			return 0;
+		out->weak = (uint16_t) (common[3] * 257);
+		out->strong = (uint16_t) (common[4] * 257);
+		return 1;
+	}
+}
+
+/* struct ff_effect of the 64-bit Linux ABI: type, id, direction, trigger, replay, then a union
+ * of 8-byte alignment of which the rumble effect uses the first two 16-bit values */
+struct evdev_ff_effect
+{
+	uint16_t type;
+	int16_t id;
+	uint16_t direction;
+	uint16_t trigger_button, trigger_interval;
+	uint16_t replay_length, replay_delay;
+	uint16_t pad;
+	uint16_t strong, weak;
+	uint8_t rest[28];
+};
+
+_Static_assert(sizeof(struct evdev_ff_effect) == 48, "struct ff_effect");
+
+static int write_event(int fd, uint16_t type, uint16_t code, int32_t value)
+{
+	struct evdev_event e;
+
+	memset(&e, 0, sizeof(e));
+	e.type = type;
+	e.code = code;
+	e.value = value;
+	return write(fd, &e, sizeof(e)) == (ssize_t) sizeof(e) ? 0 : -1;
+}
+
+int iokitd_gamepad_rumble(int fd, int* effect_id, const struct iokitd_rumble* rumble)
+{
+	struct evdev_ff_effect effect;
+
+	if (!rumble->strong && !rumble->weak)
+		return *effect_id >= 0 ? write_event(fd, EV_FF, (uint16_t) *effect_id, 0) : 0;
+
+	memset(&effect, 0, sizeof(effect));
+	effect.type = FF_RUMBLE;
+	effect.id = (int16_t) *effect_id;
+	effect.replay_length = rumble->length_ms;
+	effect.replay_delay = rumble->delay_ms;
+	effect.strong = rumble->strong;
+	effect.weak = rumble->weak;
+	if (ioctl(fd, EVIOCSFF, &effect) < 0)
+		return -1;
+	*effect_id = effect.id;
+	return write_event(fd, EV_FF, (uint16_t) effect.id, 1);
 }
 
 /* Bit access in the report, least significant bit first within a byte, as a HID report is packed */
@@ -797,6 +913,8 @@ int iokitd_gamepad_report_descriptor(const struct iokitd_gamepad* pad, uint8_t* 
 	USAGE_PAGE(&w, 0x01);
 	USAGE(&w, iokitd_gamepad_primary_usage(pad));
 	put_item(&w, 0xa0, 0x01);       /* Collection (Application) */
+	if (pad->input_report_id)
+		put_item(&w, 0x84, pad->input_report_id);
 
 	for (int i = 0; i < pad->field_count; i++)
 	{
@@ -844,6 +962,56 @@ int iokitd_gamepad_report_descriptor(const struct iokitd_gamepad* pad, uint8_t* 
 			}
 		}
 		constant_padding(&w, f->padding);
+	}
+
+	if (pad->output_kind == IOKITD_GAMEPAD_OUTPUT_XBOX)
+	{
+		/* Physical Interface Device page, Set Effect Report in a Logical collection */
+		USAGE_PAGE(&w, 0x0f);
+		USAGE(&w, 0x21);
+		put_item(&w, 0xa0, 0x02);
+		put_item(&w, 0x84, pad->output_report_id);
+		USAGE(&w, 0x97);                /* DC Enable Actuators */
+		LOGICAL_MIN(&w, 0);
+		LOGICAL_MAX(&w, 1);
+		REPORT_SIZE(&w, 1);
+		REPORT_COUNT(&w, 4);
+		put_item(&w, 0x90, 0x02);       /* Output: Data, Variable, Absolute */
+		REPORT_SIZE(&w, 1);
+		REPORT_COUNT(&w, 4);
+		put_item(&w, 0x90, 0x03);
+		USAGE(&w, 0x70);                /* Magnitude */
+		LOGICAL_MAX(&w, 100);
+		REPORT_SIZE(&w, 8);
+		REPORT_COUNT(&w, 4);
+		put_item(&w, 0x90, 0x02);
+		USAGE(&w, 0x50);                /* Duration, in 10 ms */
+		LOGICAL_MAX(&w, 255);
+		put_item(&w, 0x64, 0x1001);     /* Unit: seconds */
+		put_item(&w, 0x54, 0x0e);       /* Unit exponent -2 */
+		REPORT_COUNT(&w, 1);
+		put_item(&w, 0x90, 0x02);
+		USAGE(&w, 0xa7);                /* Start Delay */
+		put_item(&w, 0x64, 0);
+		put_item(&w, 0x54, 0);
+		put_item(&w, 0x90, 0x02);
+		USAGE(&w, 0x7c);                /* Loop Count */
+		put_item(&w, 0x90, 0x02);
+		put_byte(&w, 0xc0);
+	}
+	else if (pad->output_kind == IOKITD_GAMEPAD_OUTPUT_DUALSHOCK)
+	{
+		/* One vendor-defined block of bytes */
+		put_byte(&w, 0x06);             /* Usage Page (0xFF00) */
+		put_byte(&w, 0x00);
+		put_byte(&w, 0xff);
+		USAGE(&w, 0x22);
+		put_item(&w, 0x84, pad->output_report_id);
+		LOGICAL_MIN(&w, 0);
+		LOGICAL_MAX(&w, 255);
+		REPORT_SIZE(&w, 8);
+		REPORT_COUNT(&w, pad->output_size);
+		put_item(&w, 0x90, 0x02);
 	}
 
 	put_byte(&w, 0xc0);             /* End Collection */
