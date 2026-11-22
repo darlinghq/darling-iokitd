@@ -84,10 +84,15 @@ void IOHIDReportDevice::removeHIDClient(IOHIDLibUserClient* client)
 
 void IOHIDReportDevice::hidReportChanged(const std::vector<uint8_t>& previous)
 {
+	hidReportChanged(hidInputReportID(), previous, hidReport());
+}
+
+void IOHIDReportDevice::hidReportChanged(uint32_t reportID, const std::vector<uint8_t>& previous, const std::vector<uint8_t>& current)
+{
 	// A client cannot go away while it is told
 	std::vector<IOHIDLibUserClient*> clients(m_hidClients.begin(), m_hidClients.end());
 	for (IOHIDLibUserClient* client : clients)
-		client->reportChanged(previous, hidReport());
+		client->reportChanged(reportID, previous, current);
 }
 
 IOHIDLibUserClient::IOHIDLibUserClient(IOHIDReportDevice* device)
@@ -147,8 +152,31 @@ const IOHIDLibUserClient::ElementRef* IOHIDLibUserClient::find(uint32_t cookie) 
 int64_t IOHIDLibUserClient::valueOf(const ElementRef& ref, const std::vector<uint8_t>& report) const
 {
 	const IOHIDElementDescription& e = m_device->hidElements()[ref.description];
-	uint32_t bits = std::min<uint32_t>(e.wire.reportSize, 32);
-	uint32_t first = e.bitOffset + ref.index * e.wire.reportSize;
+
+	if (e.arrayUsages)
+	{
+		// 1 while a slot of the array holds the usage of the element
+		uint32_t usage = e.wire.usageMin + ref.index;
+
+		for (uint32_t slot = 0; slot < e.slotCount; slot++)
+		{
+			uint64_t held = 0;
+			for (uint32_t i = 0; i < e.slotSize && i < 32; i++)
+			{
+				uint32_t bit = e.slotBitOffset + slot * e.slotSize + i;
+				if (bit / 8 < report.size() && (report[bit / 8] >> (bit % 8)) & 1)
+					held |= uint64_t(1) << i;
+			}
+			if (held == usage)
+				return 1;
+		}
+		return 0;
+	}
+
+	// The first of fields that share a usage is all of them together
+	bool whole = e.wire.duplicateValueSize && ref.index == 0;
+	uint32_t bits = std::min<uint32_t>(whole ? e.wire.size : e.wire.reportSize, 32);
+	uint32_t first = e.bitOffset + (whole ? 0 : ref.index) * e.wire.reportSize;
 	uint64_t value = 0;
 
 	for (uint32_t i = 0; i < bits; i++)
@@ -313,8 +341,8 @@ IOReturn IOHIDLibUserClient::updateElementValues(IOExternalMethodArguments* args
 			return kIOReturnBadArgument;
 
 		const IOHIDElementDescription& e = m_device->hidElements()[ref->description];
-		std::vector<uint8_t> handlerBytes = e.reportHandler ? inputReportWithID() : std::vector<uint8_t>();
-		bool blob = e.wire.size > 32 && !e.reportHandler;
+		std::vector<uint8_t> handlerBytes = e.reportHandler ? inputReportWithID(e.wire.reportID) : std::vector<uint8_t>();
+		bool blob = isBlob(e, *ref);
 		uint32_t length = e.reportHandler ? alignWord(handlerBytes.size()) : blob ? alignWord(e.wire.valueSize) : 4;
 		size_t total = IOHIDLIB_ELEMENT_VALUE_HEADER + length;
 
@@ -350,6 +378,13 @@ IOReturn IOHIDLibUserClient::updateElementValues(IOExternalMethodArguments* args
 	return kIOReturnSuccess;
 }
 
+bool IOHIDLibUserClient::isBlob(const IOHIDElementDescription& e, const ElementRef& ref) const
+{
+	// More than 32 bits: the bytes of the report as they are (not for the fields after the first of
+	// fields that share a usage, which are one field each)
+	return e.wire.size > 32 && !e.reportHandler && !e.arrayUsages && !(e.wire.duplicateValueSize && ref.index != 0);
+}
+
 const std::vector<uint8_t>& IOHIDLibUserClient::reportOf(const IOHIDElementDescription& e) const
 {
 	static const std::vector<uint8_t> none;
@@ -359,17 +394,22 @@ const std::vector<uint8_t>& IOHIDLibUserClient::reportOf(const IOHIDElementDescr
 		const std::vector<uint8_t>* report = m_device->hidOutputReport(e.wire.reportID);
 		return report ? *report : none;
 	}
-	return m_device->hidReport();
+	if (e.wire.type == kIOHIDLibTypeFeature)
+		return none;
+	const std::vector<uint8_t>* report = m_device->hidInputReport(e.wire.reportID);
+	return report ? *report : none;
 }
 
-std::vector<uint8_t> IOHIDLibUserClient::inputReportWithID() const
+std::vector<uint8_t> IOHIDLibUserClient::inputReportWithID(uint32_t id) const
 {
 	std::vector<uint8_t> bytes;
-	uint32_t id = m_device->hidInputReportID();
+	const std::vector<uint8_t>* report = m_device->hidInputReport(id);
 
+	if (!report)
+		return bytes;
 	if (id)
 		bytes.push_back(uint8_t(id));
-	bytes.insert(bytes.end(), m_device->hidReport().begin(), m_device->hidReport().end());
+	bytes.insert(bytes.end(), report->begin(), report->end());
 	return bytes;
 }
 
@@ -383,8 +423,8 @@ IOReturn IOHIDLibUserClient::getReport(IOExternalMethodArguments* args)
 	uint32_t type = uint32_t(args->scalarInput[0]), id = uint32_t(args->scalarInput[1]);
 	std::vector<uint8_t> bytes;
 
-	if (type == kIOHIDLibReportInput && id == m_device->hidInputReportID())
-		bytes = inputReportWithID();
+	if (type == kIOHIDLibReportInput && m_device->hidInputReport(id))
+		bytes = inputReportWithID(id);
 	else if (type == kIOHIDLibReportOutput && m_device->hidOutputReport(id))
 	{
 		if (id)
@@ -479,7 +519,7 @@ IOReturn IOHIDLibUserClient::createQueue(IOExternalMethodArguments* args)
 		return kIOReturnBadArgument;
 
 	uint32_t depth = uint32_t(args->scalarInput[1]) ? uint32_t(args->scalarInput[1]) : kDefaultQueueDepth;
-	uint32_t entry = kEntryOverhead + alignWord(m_device->hidReport().size());
+	uint32_t entry = kEntryOverhead + alignWord(m_device->hidMaxInputReportSize() + 1);
 	size_t queueSize = size_t(depth) * entry;
 	size_t total = DATA_QUEUE_MEMORY_HEADER_SIZE + queueSize + DATA_QUEUE_MEMORY_APPENDIX_SIZE;
 	std::unique_ptr<Queue> q(new Queue);
@@ -606,7 +646,7 @@ void IOHIDLibUserClient::enqueue(Queue& q, uint32_t cookie, uint64_t timestamp, 
 	IODataQueueEnqueue(q.memory, buffer.data(), uint32_t(total));
 }
 
-void IOHIDLibUserClient::reportChanged(const std::vector<uint8_t>& previous, const std::vector<uint8_t>& current)
+void IOHIDLibUserClient::reportChanged(uint32_t reportID, const std::vector<uint8_t>& previous, const std::vector<uint8_t>& current)
 {
 	uint64_t stamp = now();
 	const auto& elements = m_device->hidElements();
@@ -621,7 +661,7 @@ void IOHIDLibUserClient::reportChanged(const std::vector<uint8_t>& previous, con
 
 		const IOHIDLibElement& wire = elements[ref.description].wire;
 		if (elements[ref.description].reportHandler || wire.type == kIOHIDLibTypeCollection
-			|| wire.type == kIOHIDLibTypeOutput || wire.type == kIOHIDLibTypeFeature)
+			|| wire.type == kIOHIDLibTypeOutput || wire.type == kIOHIDLibTypeFeature || wire.reportID != reportID)
 			continue;
 
 		int64_t value = valueOf(ref, current);
@@ -633,7 +673,7 @@ void IOHIDLibUserClient::reportChanged(const std::vector<uint8_t>& previous, con
 		}
 	}
 
-	std::vector<uint8_t> withID = inputReportWithID();
+	std::vector<uint8_t> withID = inputReportWithID(reportID);
 	for (auto& [token, q] : m_queues)
 	{
 		if (!q->started)
@@ -643,7 +683,8 @@ void IOHIDLibUserClient::reportChanged(const std::vector<uint8_t>& previous, con
 			const ElementRef* ref = find(cookie);
 			if (elements[ref->description].reportHandler)
 			{
-				enqueue(*q, cookie, stamp, m_generation, withID.data(), withID.size(), 0);
+				if (elements[ref->description].wire.reportID == reportID)
+					enqueue(*q, cookie, stamp, m_generation, withID.data(), withID.size(), 0);
 			}
 			else if (changed.count(cookie))
 			{

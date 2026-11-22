@@ -18,6 +18,7 @@
 */
 
 #include "HostInputMonitor.h"
+#include "IOHIDDescriptorDevice.h"
 #include "IOHIDGamepadDevice.h"
 #include "IOHIDInputDevice.h"
 #include <os/log.h>
@@ -115,10 +116,28 @@ void Monitor::scan()
 		struct iokitd_gamepad pad;
 		struct iokitd_input input;
 
+		IOHIDDescriptorSource source;
+
+		// A device that is a HID device of the host is described by its own report descriptor, the others
+		// by one made up for what their node offers
 		if (iokitd_gamepad_probe(path.c_str(), &pad) == 0)
-			publish<IOHIDGamepadDevice>(path, pad, pad.name, "game controller");
+		{
+			if (IOHIDDescriptorDevice::probe(path, pad.name, pad.serial, pad.bustype, pad.vendor, pad.product, pad.version,
+				pad.has_rumble != 0, false, &source))
+				publish<IOHIDDescriptorDevice>(path, source, pad.name, "HID game controller");
+			else
+				publish<IOHIDGamepadDevice>(path, pad, pad.name, "game controller");
+		}
 		else if (iokitd_input_probe(path.c_str(), &input) == 0)
-			publish<IOHIDInputDevice>(path, input, input.name, input.kind == IOKITD_INPUT_KEYBOARD ? "keyboard" : "mouse");
+		{
+			const char* kind = input.kind == IOKITD_INPUT_KEYBOARD ? "keyboard" : "mouse";
+
+			if (IOHIDDescriptorDevice::probe(path, input.name, input.serial, input.bustype, input.vendor, input.product, input.version,
+				false, input.has_leds != 0, &source))
+				publish<IOHIDDescriptorDevice>(path, source, input.name, input.kind == IOKITD_INPUT_KEYBOARD ? "HID keyboard" : "HID mouse");
+			else
+				publish<IOHIDInputDevice>(path, input, input.name, kind);
+		}
 		else
 			ignored[path]++;
 	}
