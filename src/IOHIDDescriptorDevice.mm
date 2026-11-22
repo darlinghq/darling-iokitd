@@ -18,7 +18,7 @@
 */
 
 #include "IOHIDDescriptorDevice.h"
-#include "HostInputIdentity.h"
+#include "IOHIDHostIdentity.h"
 #include "IOHIDDeviceMatching.h"
 #include "HostGamepad.h"
 #include "HostInput.h"
@@ -42,8 +42,6 @@ static NSString* const kKeyVendorID = @"VendorID";
 static NSString* const kKeyProductID = @"ProductID";
 static NSString* const kKeyVersionNumber = @"VersionNumber";
 static NSString* const kKeyProduct = @"Product";
-static NSString* const kKeyManufacturer = @"Manufacturer";
-static NSString* const kKeyCountryCode = @"CountryCode";
 static NSString* const kKeySerialNumber = @"SerialNumber";
 static NSString* const kKeyLocationID = @"LocationID";
 static NSString* const kKeyPrimaryUsagePage = @"PrimaryUsagePage";
@@ -91,12 +89,6 @@ static NSDictionary* propertiesOf(const IOHIDDescriptorSource& source, const str
 	props[kKeyProductID] = @(source.product);
 	props[kKeyVersionNumber] = @(source.version);
 	props[kKeyProduct] = [NSString stringWithUTF8String: source.name.empty() ? "HID Device" : source.name.c_str()];
-	char manufacturer[64];
-	iokitd_input_manufacturer(source.path.c_str(), manufacturer, sizeof(manufacturer));
-	if (manufacturer[0])
-		props[kKeyManufacturer] = [NSString stringWithUTF8String: manufacturer];
-	// No country localization, as for USB devices that declare none
-	props[kKeyCountryCode] = @0;
 	if (!source.serial.empty())
 		props[kKeySerialNumber] = [NSString stringWithUTF8String: source.serial.c_str()];
 
@@ -116,6 +108,7 @@ static NSDictionary* propertiesOf(const IOHIDDescriptorSource& source, const str
 	props[kKeyMaxInputReportSize] = @(iokitd_hid_max_report_bytes(&descriptor, IOKITD_HID_INPUT));
 	props[kKeyMaxOutputReportSize] = @(iokitd_hid_max_report_bytes(&descriptor, IOKITD_HID_OUTPUT));
 	props[kKeyMaxFeatureReportSize] = @(iokitd_hid_max_report_bytes(&descriptor, IOKITD_HID_FEATURE));
+	IOHIDApplyHostIdentity(props, source.path.c_str());
 	return props;
 }
 

@@ -78,6 +78,7 @@ set(iokitd_sources
 	src/HostHIDDevice.c
 	src/HostGamepad.c
 	src/HostInputIdentity.c
+	src/IOHIDHostIdentity.mm
 	src/HostInput.c
 	src/HostInputMonitor.mm
 	src/IOHostGPU.mm
