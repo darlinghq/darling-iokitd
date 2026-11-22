@@ -54,6 +54,8 @@ static NSString* const kKeyPlugInTypes = @"IOCFPlugInTypes";
 // The plug-in that IOHIDDeviceCreate() loads (kIOHIDDeviceTypeID, and the
 // plug-in's path relative to the extensions folder)
 static NSString* const kHIDDeviceTypeID = @"7DDEECA8-A7B4-11DA-8A0E-0014519758EF";
+// The plug-in type of the IOHIDDeviceInterface family (kIOHIDDeviceUserClientTypeID), served by the same plug-in
+static NSString* const kHIDDeviceUserClientTypeID = @"FA12FA38-6F1A-11D4-BA0C-0005028F18D5";
 static NSString* const kHIDLibPlugIn = @"IOHIDFamily.kext/Contents/PlugIns/IOHIDLib.plugin";
 
 static NSString* transportName(uint16_t bustype)
@@ -75,7 +77,7 @@ static NSDictionary* propertiesOf(const struct iokitd_input& dev)
 	NSMutableDictionary* props = [NSMutableDictionary dictionary];
 	const char* fallbackName = dev.kind == IOKITD_INPUT_KEYBOARD ? "Keyboard" : "Mouse";
 
-	props[kKeyPlugInTypes] = @{ kHIDDeviceTypeID: kHIDLibPlugIn };
+	props[kKeyPlugInTypes] = @{ kHIDDeviceTypeID: kHIDLibPlugIn, kHIDDeviceUserClientTypeID: kHIDLibPlugIn };
 	props[kKeyTransport] = transportName(dev.bustype);
 	props[kKeyVendorID] = @(dev.vendor);
 	props[kKeyProductID] = @(dev.product);
