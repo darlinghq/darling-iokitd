@@ -18,6 +18,7 @@
 */
 
 #include "IOHIDInputDevice.h"
+#include "HostInputIdentity.h"
 #include "IOHIDDeviceMatching.h"
 #include "IOUserClient.h"
 #import <Foundation/NSArray.h>
@@ -37,6 +38,8 @@ static NSString* const kKeyVendorID = @"VendorID";
 static NSString* const kKeyProductID = @"ProductID";
 static NSString* const kKeyVersionNumber = @"VersionNumber";
 static NSString* const kKeyProduct = @"Product";
+static NSString* const kKeyManufacturer = @"Manufacturer";
+static NSString* const kKeyCountryCode = @"CountryCode";
 static NSString* const kKeySerialNumber = @"SerialNumber";
 static NSString* const kKeyLocationID = @"LocationID";
 static NSString* const kKeyPrimaryUsagePage = @"PrimaryUsagePage";
@@ -83,6 +86,12 @@ static NSDictionary* propertiesOf(const struct iokitd_input& dev)
 	props[kKeyProductID] = @(dev.product);
 	props[kKeyVersionNumber] = @(dev.version);
 	props[kKeyProduct] = [NSString stringWithUTF8String: dev.name[0] ? dev.name : fallbackName];
+	char manufacturer[64];
+	iokitd_input_manufacturer(dev.path, manufacturer, sizeof(manufacturer));
+	if (manufacturer[0])
+		props[kKeyManufacturer] = [NSString stringWithUTF8String: manufacturer];
+	// No country localization, as for USB devices that declare none
+	props[kKeyCountryCode] = @0;
 	if (dev.serial[0])
 		props[kKeySerialNumber] = [NSString stringWithUTF8String: dev.serial];
 
