@@ -149,6 +149,10 @@ struct IOHIDElementDescription
 	IOHIDLibElement wire;
 	uint32_t bitOffset = 0;  // of the first value, in the report (input or output as the type says; without report ID)
 	bool reportHandler = false;
+	// The elements of the usages of an array item: the value of the element of usage u is 1 while a
+	// slot of the array (slotCount slots of slotSize bits from slotBitOffset) holds u, else 0
+	bool arrayUsages = false;
+	uint32_t slotBitOffset = 0, slotSize = 0, slotCount = 0;
 };
 
 class IOHIDLibUserClient;
@@ -169,6 +173,16 @@ public:
 	// of hidReport() is without it; clients receive it with the ID in front.
 	virtual uint32_t hidInputReportID() const { return 0; }
 
+	// The input report with that ID (without the ID), or null if the device has no such report. A device
+	// with several input reports overrides this, and hidReport() is then its first.
+	virtual const std::vector<uint8_t>* hidInputReport(uint32_t reportID) const
+	{
+		return reportID == hidInputReportID() ? &hidReport() : nullptr;
+	}
+
+	// The length of the longest input report, which sizes the queues
+	virtual size_t hidMaxInputReportSize() const { return hidReport().size(); }
+
 	// The output report with that ID as last sent (without the ID), or null
 	// if the device has no such output report. Output elements read from it.
 	virtual const std::vector<uint8_t>* hidOutputReport(uint32_t reportID) const { return nullptr; }
@@ -186,6 +200,8 @@ public:
 protected:
 	// The input report changed from previous to hidReport()
 	void hidReportChanged(const std::vector<uint8_t>& previous);
+	// The input report with that ID changed from previous to current
+	void hidReportChanged(uint32_t reportID, const std::vector<uint8_t>& previous, const std::vector<uint8_t>& current);
 
 private:
 	std::set<IOHIDLibUserClient*> m_hidClients;
@@ -207,7 +223,7 @@ public:
 	IOReturn clientMemory(uint32_t type, int* fd, uint64_t* size) override;
 
 	// Called by the device
-	void reportChanged(const std::vector<uint8_t>& previous, const std::vector<uint8_t>& current);
+	void reportChanged(uint32_t reportID, const std::vector<uint8_t>& previous, const std::vector<uint8_t>& current);
 	void deviceGone();
 
 private:
@@ -216,6 +232,7 @@ private:
 
 	const ElementRef* find(uint32_t cookie) const;
 	int64_t valueOf(const ElementRef& ref, const std::vector<uint8_t>& report) const;
+	bool isBlob(const IOHIDElementDescription& e, const ElementRef& ref) const;
 	Queue* queue(uint64_t token);
 
 	IOReturn getElements(IOExternalMethodArguments* arguments);
@@ -228,7 +245,7 @@ private:
 	IOReturn setReport(IOExternalMethodArguments* arguments);
 	IOReturn postElementValues(IOExternalMethodArguments* arguments);
 	const std::vector<uint8_t>& reportOf(const IOHIDElementDescription& e) const;
-	std::vector<uint8_t> inputReportWithID() const;
+	std::vector<uint8_t> inputReportWithID(uint32_t reportID) const;
 
 	void enqueue(Queue& queue, uint32_t cookie, uint64_t timestamp, uint32_t generation, const void* bytes, size_t length, uint32_t flags);
 	void freeQueue(Queue& queue);
