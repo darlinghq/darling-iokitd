@@ -81,6 +81,7 @@ set(iokitd_sources
 	${CMAKE_CURRENT_BINARY_DIR}/iokitmig32Server.c
 	${CMAKE_CURRENT_BINARY_DIR}/iokitdarlingServer.c
 	src/iokitDispatch.cpp
+	src/IOAsyncCompletion.cpp
 	${CMAKE_CURRENT_BINARY_DIR}/powermanagementServer.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../IOKitUser/IOCFSerialize.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../IOKitUser/IOCFUnserialize.tab.c

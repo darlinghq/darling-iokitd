@@ -18,6 +18,7 @@
 */
 
 #include "IOHIDLibUserClient.h"
+#include "IOAsyncCompletion.h"
 #import <Foundation/NSDictionary.h>
 #include <IOKit/IODataQueueClient.h>
 #include <IOKit/IODataQueueShared.h>
@@ -238,11 +239,21 @@ IOReturn IOHIDLibUserClient::asyncExternalMethod(uint32_t selector, IOExternalMe
 {
 	if (selector == kIOHIDLibSelectorSetReport || selector == kIOHIDLibSelectorGetReport)
 	{
-		// The report is exchanged before this returns, so the reply carries the result. The completion
-		// message to the wake port is not sent: its layout depends on whether the client is a 32-bit
-		// process, which a request does not tell, and the IOHIDLib plug-in does not dispatch it.
+		// The report is exchanged before this returns, so the reply carries the data and the
+		// result of a call that fails. A call that succeeds also completes: the completion
+		// message goes to the wake port, once, with the result and the length of the report
+		// (what the callback of IOHIDDeviceSetReportWithCallback and IOHIDDeviceGetReportWithCallback
+		// gets). The operation never takes long, so a timeout of the call cannot expire first.
+		bool set = selector == kIOHIDLibSelectorSetReport;
+		uint64_t length = set ? args->structureInputSize : 0;
 		IOReturn result = externalMethod(selector, args);
 
+		if (result == kIOReturnSuccess)
+		{
+			if (!set)
+				length = args->structureOutputSize;
+			iokitSendAsyncCompletion(wakePort, reference, referenceCount, kIOReturnSuccess, &length, 1);
+		}
 		if (MACH_PORT_VALID(wakePort))
 			mach_port_deallocate(mach_task_self(), wakePort);
 		return result;
