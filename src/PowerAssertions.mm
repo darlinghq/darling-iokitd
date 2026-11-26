@@ -24,8 +24,12 @@
 #include <cmath>
 #include <stdexcept>
 #include <string>
+#include <set>
 #include <CoreFoundation/CoreFoundation.h>
+#include <IOKit/pwr_mgt/IOPMLibPrivate.h>
 #include <bsm/libbsm.h>
+#include <mach/mach.h>
+#include <notify.h>
 #include <os/log.h>
 #import <Foundation/NSString.h>
 
@@ -35,6 +39,22 @@ extern "C" {
 
 std::unordered_map<int, AppAssertions*> AppAssertions::m_instances;
 static std::unordered_map<std::string, PowerAssertion*> g_assertionKinds;
+// The legacy names of the types as the current names of the same types, for the status listing.
+static std::unordered_map<std::string, std::string> g_currentTypeNames;
+// Clients that asked for assertion change notifications with io_pm_assertion_notify, by notification name.
+static std::unordered_map<std::string, int> g_notifyRegistrations;
+
+static std::string stringOf(CFStringRef string)
+{
+	return [(NSString*) string UTF8String];
+}
+
+static void postNotification(const char* name)
+{
+	auto it = g_notifyRegistrations.find(name);
+	if (it != g_notifyRegistrations.end() && it->second > 0)
+		notify_post(name);
+}
 
 void initPM()
 {
@@ -52,18 +72,34 @@ void initPM()
 		{ [(NSString*) kIOPMAssertPreventDiskIdle UTF8String], &other },
 		{ [(NSString*) kIOPMAssertNetworkClientActive UTF8String], &other },
 	};
+	g_currentTypeNames = {
+		{ stringOf(kIOPMAssertionTypeNoIdleSleep), stringOf(kIOPMAssertPreventUserIdleSystemSleep) },
+		{ stringOf(kIOPMAssertPreventUserIdleSystemSleep), stringOf(kIOPMAssertPreventUserIdleSystemSleep) },
+		{ stringOf(kIOPMAssertionTypeNoDisplaySleep), stringOf(kIOPMAssertPreventUserIdleDisplaySleep) },
+		{ stringOf(kIOPMAssertPreventUserIdleDisplaySleep), stringOf(kIOPMAssertPreventUserIdleDisplaySleep) },
+		{ stringOf(kIOPMAssertionTypePreventSystemSleep), stringOf(kIOPMAssertionTypePreventSystemSleep) },
+		{ stringOf(kIOPMAssertPreventDiskIdle), stringOf(kIOPMAssertPreventDiskIdle) },
+		{ stringOf(kIOPMAssertNetworkClientActive), stringOf(kIOPMAssertNetworkClientActive) },
+	};
 }
 
+// The system-wide levels changed (see kIOPMAssertionsChangedNotifyString)
 void PowerAssertion::addRef()
 {
 	if (m_numHolds++ == 0)
+	{
 		activate();
+		postNotification(kIOPMAssertionsChangedNotifyString);
+	}
 }
 
 void PowerAssertion::delRef()
 {
 	if (m_numHolds > 0 && --m_numHolds == 0)
+	{
 		deactivate();
+		postNotification(kIOPMAssertionsChangedNotifyString);
+	}
 }
 
 void PowerAssertionPreventIdleSleep::activate()
@@ -101,6 +137,19 @@ AppAssertions::~AppAssertions()
 
 	dispatch_source_cancel(m_processSource);
 	dispatch_release(m_processSource);
+	if (!m_heldAssertions.empty())
+		postAnyChanged();
+}
+
+void AppAssertions::postAnyChanged()
+{
+	postNotification(kIOPMAssertionsAnyChangedNotifyString);
+}
+
+void AppAssertions::forEach(void (^visit)(AppAssertions* app))
+{
+	for (auto& [pid, app] : m_instances)
+		visit(app);
 }
 
 AppAssertions* AppAssertions::get(int pid, bool create)
@@ -132,17 +181,61 @@ AppAssertions::HeldAssertion* AppAssertions::getAssertion(int assertionId)
 	return nullptr;
 }
 
-IOReturn AppAssertions::createAssertion(PowerAssertion* which, bool enabled, int* assertionId)
+IOReturn AppAssertions::createAssertion(PowerAssertion* which, bool enabled, int* assertionId,
+	const std::string& type, const std::string& name)
 {
 	if (m_nextAssertionNumber == INT_MAX)
 		return kIOReturnNoResources;
 
 	int number = m_nextAssertionNumber++;
-	m_heldAssertions.insert(std::make_pair(number, HeldAssertion{ 1, which, enabled, 0 }));
+	m_heldAssertions.insert(std::make_pair(number, HeldAssertion{ 1, which, enabled, 0, type, name }));
 	if (enabled)
 		which->addRef();
 	*assertionId = number;
+	postAnyChanged();
 	return kIOReturnSuccess;
+}
+
+CFDictionaryRef AppAssertions::copyAssertionInfo(int assertionId, const HeldAssertion& held) const
+{
+	CFMutableDictionaryRef info = CFDictionaryCreateMutable(nullptr, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	int level = held.enabled ? kIOPMAssertionLevelOn : kIOPMAssertionLevelOff;
+	CFStringRef type = CFStringCreateWithCString(nullptr, held.type.c_str(), kCFStringEncodingUTF8);
+	CFNumberRef levelNumber = CFNumberCreate(nullptr, kCFNumberIntType, &level);
+	CFNumberRef pidNumber = CFNumberCreate(nullptr, kCFNumberIntType, &m_pid);
+	CFNumberRef idNumber = CFNumberCreate(nullptr, kCFNumberIntType, &assertionId);
+
+	if (type)
+		CFDictionarySetValue(info, kIOPMAssertionTypeKey, type);
+	// The legacy names of the types are listed as given, with the current name of the type beside them.
+	auto current = g_currentTypeNames.find(held.type);
+	if (current != g_currentTypeNames.end())
+	{
+		CFStringRef trueType = CFStringCreateWithCString(nullptr, current->second.c_str(), kCFStringEncodingUTF8);
+		if (trueType)
+		{
+			CFDictionarySetValue(info, kIOPMAssertionTrueTypeKey, trueType);
+			CFRelease(trueType);
+		}
+	}
+	CFDictionarySetValue(info, kIOPMAssertionLevelKey, levelNumber);
+	CFDictionarySetValue(info, kIOPMAssertionPIDKey, pidNumber);
+	CFDictionarySetValue(info, kIOPMAssertionIdKey, idNumber);
+	if (!held.name.empty())
+	{
+		CFStringRef name = CFStringCreateWithCString(nullptr, held.name.c_str(), kCFStringEncodingUTF8);
+		if (name)
+		{
+			CFDictionarySetValue(info, kIOPMAssertionNameKey, name);
+			CFRelease(name);
+		}
+	}
+	if (type)
+		CFRelease(type);
+	CFRelease(levelNumber);
+	CFRelease(pidNumber);
+	CFRelease(idNumber);
+	return info;
 }
 
 void AppAssertions::setEnabled(HeldAssertion* held, bool enabled)
@@ -154,6 +247,7 @@ void AppAssertions::setEnabled(HeldAssertion* held, bool enabled)
 		held->assertion->addRef();
 	else
 		held->assertion->delRef();
+	postAnyChanged();
 }
 
 void AppAssertions::setTimeout(int assertionId, double seconds, CFStringRef action)
@@ -193,6 +287,7 @@ void AppAssertions::killAssertion(int assertionId)
 	if (it->second.enabled)
 		it->second.assertion->delRef();
 	m_heldAssertions.erase(it);
+	postAnyChanged();
 }
 
 static pid_t callerPid(audit_token_t token)
@@ -202,22 +297,29 @@ static pid_t callerPid(audit_token_t token)
 	return pid;
 }
 
-// Takes over the out-of-line properties data. Returns a dictionary or NULL.
-static CFDictionaryRef copyProperties(vm_offset_t props, mach_msg_type_number_t propsCnt)
+// Takes over the out-of-line serialized object. Returns it or NULL.
+static CFTypeRef copyObject(vm_offset_t props, mach_msg_type_number_t propsCnt)
 {
-	CFDictionaryRef properties = nullptr;
+	CFTypeRef object = nullptr;
 
 	if (props && propsCnt)
 	{
 		CFDataRef data = CFDataCreateWithBytesNoCopy(nullptr, (const UInt8*) props, propsCnt, kCFAllocatorNull);
 		if (data)
 		{
-			properties = (CFDictionaryRef) CFPropertyListCreateWithData(nullptr, data, kCFPropertyListImmutable, nullptr, nullptr);
+			object = CFPropertyListCreateWithData(nullptr, data, kCFPropertyListImmutable, nullptr, nullptr);
 			CFRelease(data);
 		}
 	}
 	if (props)
 		vm_deallocate(mach_task_self(), props, propsCnt);
+	return object;
+}
+
+// Takes over the out-of-line properties data. Returns a dictionary or NULL.
+static CFDictionaryRef copyProperties(vm_offset_t props, mach_msg_type_number_t propsCnt)
+{
+	CFDictionaryRef properties = (CFDictionaryRef) copyObject(props, propsCnt);
 
 	if (properties && CFGetTypeID(properties) != CFDictionaryGetTypeID())
 	{
@@ -295,7 +397,12 @@ kern_return_t _io_pm_assertion_create
 		&& (!timeout || timeoutSeconds(timeout, &seconds)))
 	{
 		AppAssertions* app = AppAssertions::get(callerPid(token));
-		*return_code = app ? app->createAssertion(kind->second, enabled, assertion_id) : kIOReturnNoResources;
+		CFTypeRef name = CFDictionaryGetValue(properties, kIOPMAssertionNameKey);
+		std::string nameString;
+		if (name && CFGetTypeID(name) == CFStringGetTypeID())
+			nameString = stringOf((CFStringRef) name);
+		*return_code = app ? app->createAssertion(kind->second, enabled, assertion_id,
+			stringOf((CFStringRef) type), nameString) : kIOReturnNoResources;
 
 		if (*return_code == kIOReturnSuccess && seconds > 0)
 			app->setTimeout(*assertion_id, seconds, timeoutAction(properties));
@@ -394,5 +501,210 @@ kern_return_t _io_pm_assertion_set_properties
 	}
 
 	CFRelease(properties);
+	return KERN_SUCCESS;
+}
+
+// The serialized object as out-of-line data for a MIG reply. NULL object: no data.
+static IOReturn replyWithObject(CFTypeRef object, vm_offset_t* data, mach_msg_type_number_t* dataCnt)
+{
+	*data = 0;
+	*dataCnt = 0;
+
+	CFDataRef serialized = CFPropertyListCreateData(nullptr, object, kCFPropertyListBinaryFormat_v1_0, 0, nullptr);
+	if (!serialized)
+		return kIOReturnInternalError;
+
+	CFIndex length = CFDataGetLength(serialized);
+	vm_address_t address = 0;
+	if (vm_allocate(mach_task_self(), &address, length, VM_FLAGS_ANYWHERE) != KERN_SUCCESS)
+	{
+		CFRelease(serialized);
+		return kIOReturnNoMemory;
+	}
+	memcpy((void*) address, CFDataGetBytePtr(serialized), length);
+	CFRelease(serialized);
+	*data = address;
+	*dataCnt = (mach_msg_type_number_t) length;
+	return kIOReturnSuccess;
+}
+
+// The listing of every process' assertions in the form io_pm_assertion_copy_details answers
+// kIOPMAssertionMIGCopyAll and kIOPMAssertionMIGCopyInactive with: an array with one dictionary
+// per process, holding the pid and the array of its assertions.
+static CFArrayRef copyAssertionsByProcess(bool inactive)
+{
+	CFMutableArrayRef processes = CFArrayCreateMutable(nullptr, 0, &kCFTypeArrayCallBacks);
+
+	AppAssertions::forEach(^(AppAssertions* app) {
+		CFMutableArrayRef list = CFArrayCreateMutable(nullptr, 0, &kCFTypeArrayCallBacks);
+		for (auto& [assertionId, held] : app->held())
+		{
+			if (held.enabled == inactive)
+				continue;
+			CFDictionaryRef info = app->copyAssertionInfo(assertionId, held);
+			CFArrayAppendValue(list, info);
+			CFRelease(info);
+		}
+		if (CFArrayGetCount(list) > 0)
+		{
+			int pid = app->pid();
+			CFNumberRef pidNumber = CFNumberCreate(nullptr, kCFNumberIntType, &pid);
+			CFMutableDictionaryRef entry = CFDictionaryCreateMutable(nullptr, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+			CFDictionarySetValue(entry, kIOPMAssertionPIDKey, pidNumber);
+			CFDictionarySetValue(entry, CFSTR("PerTaskAssertions"), list);
+			CFArrayAppendValue(processes, entry);
+			CFRelease(entry);
+			CFRelease(pidNumber);
+		}
+		CFRelease(list);
+	});
+	return processes;
+}
+
+// The current type names with 1 for a type some process holds and 0 for one nobody does (as macOS lists them).
+static CFDictionaryRef copyAssertionsStatus()
+{
+	__block std::set<std::string> raised;
+
+	AppAssertions::forEach(^(AppAssertions* app) {
+		for (auto& [assertionId, held] : app->held())
+		{
+			auto current = g_currentTypeNames.find(held.type);
+			if (held.enabled && current != g_currentTypeNames.end())
+				raised.insert(current->second);
+		}
+	});
+
+	CFMutableDictionaryRef status = CFDictionaryCreateMutable(nullptr, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+	std::set<std::string> types;
+	for (auto& [legacy, current] : g_currentTypeNames)
+		types.insert(current);
+	for (auto& type : types)
+	{
+		int level = raised.count(type) ? 1 : 0;
+		CFStringRef key = CFStringCreateWithCString(nullptr, type.c_str(), kCFStringEncodingUTF8);
+		CFNumberRef number = CFNumberCreate(nullptr, kCFNumberIntType, &level);
+		CFDictionarySetValue(status, key, number);
+		CFRelease(key);
+		CFRelease(number);
+	}
+	return status;
+}
+
+// The assertions with a type, current or legacy name, as an array of assertion dictionaries.
+static CFArrayRef copyAssertionsByType(CFStringRef type)
+{
+	CFMutableArrayRef list = CFArrayCreateMutable(nullptr, 0, &kCFTypeArrayCallBacks);
+	std::string wanted = stringOf(type);
+	auto wantedCurrent = g_currentTypeNames.find(wanted);
+
+	AppAssertions::forEach(^(AppAssertions* app) {
+		for (auto& [assertionId, held] : app->held())
+		{
+			auto current = g_currentTypeNames.find(held.type);
+			bool same = held.type == wanted
+				|| (wantedCurrent != g_currentTypeNames.end() && current != g_currentTypeNames.end()
+					&& current->second == wantedCurrent->second);
+			if (!same)
+				continue;
+			CFDictionaryRef info = app->copyAssertionInfo(assertionId, held);
+			CFArrayAppendValue(list, info);
+			CFRelease(info);
+		}
+	});
+	return list;
+}
+
+// IOPMCopyAssertionsByProcess, IOPMCopyInactiveAssertionsByProcess, IOPMCopyAssertionsStatus,
+// IOPMCopyAssertionsByType and IOPMAssertionCopyProperties. The scheduled power events are not
+// kept by iokitd.
+kern_return_t _io_pm_assertion_copy_details
+(
+	mach_port_t server,
+	audit_token_t token,
+	int assertion_id,
+	int whichData,
+	vm_offset_t props,
+	mach_msg_type_number_t propsCnt,
+	vm_offset_t *assertions,
+	mach_msg_type_number_t *assertionsCnt,
+	int *return_val
+)
+{
+	CFTypeRef selector = copyObject(props, propsCnt);
+	__block CFTypeRef result = nullptr;
+
+	*assertions = 0;
+	*assertionsCnt = 0;
+	*return_val = kIOReturnBadArgument;
+
+	switch (whichData)
+	{
+		case kIOPMAssertionMIGCopyAll:
+			result = copyAssertionsByProcess(false);
+			break;
+		case kIOPMAssertionMIGCopyInactive:
+			result = copyAssertionsByProcess(true);
+			break;
+		case kIOPMAssertionMIGCopyStatus:
+			result = copyAssertionsStatus();
+			break;
+		case kIOPMAssertionMIGCopyByType:
+			if (selector && CFGetTypeID(selector) == CFStringGetTypeID())
+				result = copyAssertionsByType((CFStringRef) selector);
+			break;
+		case kIOPMAssertionMIGCopyOneAssertionProperties:
+			AppAssertions::forEach(^(AppAssertions* app) {
+				AppAssertions::HeldAssertion* held = app->getAssertion(assertion_id);
+				if (held && !result)
+					result = app->copyAssertionInfo(assertion_id, *held);
+			});
+			if (!result)
+				*return_val = kIOReturnNotFound;
+			break;
+		default:
+			break;
+	}
+
+	if (result)
+	{
+		*return_val = replyWithObject(result, assertions, assertionsCnt);
+		CFRelease(result);
+	}
+	if (selector)
+		CFRelease(selector);
+	return KERN_SUCCESS;
+}
+
+// IOPMAssertionNotify: the clients that want kIOPMAssertionsChangedNotifyString and
+// kIOPMAssertionsAnyChangedNotifyString posted register with it first.
+kern_return_t _io_pm_assertion_notify
+(
+	mach_port_t server,
+	audit_token_t token,
+	string_t name,
+	int req_type,
+	int *return_code
+)
+{
+	*return_code = kIOReturnBadArgument;
+
+	if (strcmp(name, kIOPMAssertionsChangedNotifyString) != 0
+		&& strcmp(name, kIOPMAssertionsAnyChangedNotifyString) != 0
+		&& strcmp(name, kIOPMAssertionTimedOutNotifyString) != 0)
+		return KERN_SUCCESS;
+
+	if (req_type == kIOPMNotifyRegister)
+		g_notifyRegistrations[name]++;
+	else if (req_type == kIOPMNotifyDeRegister)
+	{
+		int& count = g_notifyRegistrations[name];
+		if (count > 0)
+			count--;
+	}
+	else
+		return KERN_SUCCESS;
+
+	*return_code = kIOReturnSuccess;
 	return KERN_SUCCESS;
 }

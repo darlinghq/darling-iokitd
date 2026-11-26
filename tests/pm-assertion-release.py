@@ -18,10 +18,11 @@ import os, re, shlex, subprocess, sys, tempfile
 
 here = os.path.dirname(os.path.abspath(__file__))
 src = sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "..", "src")
-NAMES = ["PowerAssertion::addRef", "PowerAssertion::delRef", "AppAssertions::AppAssertions",
+NAMES = ["postNotification", "PowerAssertion::addRef", "PowerAssertion::delRef", "AppAssertions::AppAssertions",
          "AppAssertions::~AppAssertions", "AppAssertions::get", "AppAssertions::getAssertion",
          "AppAssertions::createAssertion", "AppAssertions::setEnabled",
-         "AppAssertions::killAssertion", "callerPid", "_io_pm_assertion_retain_release"]
+         "AppAssertions::killAssertion", "AppAssertions::postAnyChanged",
+         "callerPid", "_io_pm_assertion_retain_release"]
 
 def cut(text, name):
     m = re.search(r"^(?:[^\s(){};]+[ \t]+)*" + re.escape(name) + r"\b[^;{]*\{", text, re.M)
@@ -46,6 +47,7 @@ typedef int kern_return_t;
 #define KERN_NOT_SUPPORTED 46
 typedef int IOReturn;
 typedef const void* CFStringRef;
+typedef const void* CFDictionaryRef;
 #define kIOReturnSuccess 0
 #define kIOReturnBadArgument ((IOReturn) 0xe00002c2)
 #define kIOReturnNoResources ((IOReturn) 0xe00002be)
@@ -79,6 +81,12 @@ static void audit_token_to_au32(audit_token_t t, void*, void*, void*, void*, voi
 { *pid = t.val[5]; }
 
 std::unordered_map<int, AppAssertions*> AppAssertions::m_instances;
+// What the change notifications need: the clients registered and what was posted.
+#define kIOPMAssertionsChangedNotifyString "com.apple.system.powermanagement.assertions"
+#define kIOPMAssertionsAnyChangedNotifyString "com.apple.system.powermanagement.assertions.anychange"
+static std::unordered_map<std::string, int> g_notifyRegistrations;
+static std::unordered_map<std::string, int> g_posted;
+static void notify_post(const char* name) { g_posted[name]++; }
 // The process-exit handler block is built but never run here.
 extern "C" { void* _NSConcreteStackBlock[32]; }
 
@@ -148,6 +156,31 @@ int main()
 	kr = _io_pm_assertion_retain_release(0, other, id, kIOPMAssertionMIGDoRelease, &count, &disable, &enable, &rc);
 	CHECK(kr == KERN_SUCCESS && rc == kIOReturnBadArgument && display.active == 1, "release by another process");
 	CHECK(count >= 0, "release after last release made count %d negative", count);
+
+	// The change notifications go to clients that registered, and only to them.
+	AppAssertions* app = AppAssertions::get(4242);
+	int any = g_posted[kIOPMAssertionsAnyChangedNotifyString], global = g_posted[kIOPMAssertionsChangedNotifyString];
+	CHECK(app->createAssertion(&display, true, &id) == kIOReturnSuccess, "create unregistered");
+	CHECK(g_posted[kIOPMAssertionsAnyChangedNotifyString] == any && g_posted[kIOPMAssertionsChangedNotifyString] == global,
+	      "notification posted without a registered client");
+	g_notifyRegistrations[kIOPMAssertionsAnyChangedNotifyString] = 1;
+	g_notifyRegistrations[kIOPMAssertionsChangedNotifyString] = 1;
+	any = g_posted[kIOPMAssertionsAnyChangedNotifyString];
+	global = g_posted[kIOPMAssertionsChangedNotifyString];
+	CHECK(app->createAssertion(&display, true, &id) == kIOReturnSuccess, "create registered");
+	CHECK(g_posted[kIOPMAssertionsAnyChangedNotifyString] == any + 1, "no change notification for a new assertion");
+	// The type was held already: the system-wide level did not change.
+	CHECK(g_posted[kIOPMAssertionsChangedNotifyString] == global, "global notification for a type that was held");
+	app->setEnabled(app->getAssertion(id), false);
+	CHECK(g_posted[kIOPMAssertionsAnyChangedNotifyString] == any + 2, "no change notification for a disabled assertion");
+	app->killAssertion(id);
+	CHECK(g_posted[kIOPMAssertionsAnyChangedNotifyString] == any + 3, "no change notification for a released assertion");
+	CountingAssertion fresh;
+	global = g_posted[kIOPMAssertionsChangedNotifyString];
+	CHECK(app->createAssertion(&fresh, true, &id) == kIOReturnSuccess, "create of a fresh type");
+	CHECK(g_posted[kIOPMAssertionsChangedNotifyString] == global + 1, "no global notification when a type is first held");
+	app->killAssertion(id);
+	CHECK(g_posted[kIOPMAssertionsChangedNotifyString] == global + 2, "no global notification when a type is last released");
 
 	printf("%s: %d checks, %d failed\n", failures ? "FAIL" : "PASS", checks, failures);
 	return failures != 0;

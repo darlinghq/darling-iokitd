@@ -131,25 +131,6 @@ kern_return_t _io_pm_last_wake_time
 }
 
 
-/* Routine io_pm_assertion_copy_details */
-
-kern_return_t _io_pm_assertion_copy_details
-(
-	mach_port_t server,
-	audit_token_t token,
-	int assertion_id,
-	int whichData,
-	vm_offset_t props,
-	mach_msg_type_number_t propsCnt,
-	vm_offset_t *assertions,
-	mach_msg_type_number_t *assertionsCnt,
-	int *return_val
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
-
 
 /* Routine io_pm_declare_system_active */
 
@@ -505,21 +486,6 @@ kern_return_t _io_pm_ctl_assertion_type
     return KERN_NOT_SUPPORTED;
 }
 
-
-/* Routine io_pm_assertion_notify */
-
-kern_return_t _io_pm_assertion_notify
-(
-	mach_port_t server,
-	audit_token_t token,
-	string_t name,
-	int req_type,
-	int *return_code
-)
-{
-    STUB();
-    return KERN_NOT_SUPPORTED;
-}
 
 
 /* Routine io_pm_assertion_activity_log */
