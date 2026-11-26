@@ -20,6 +20,7 @@
 #ifndef POWERASSERTIONS_H
 #define POWERASSERTIONS_H
 #include <IOKit/pwr_mgt/IOPMLib.h>
+#include <string>
 #include <unordered_map>
 #include <dispatch/dispatch.h>
 
@@ -71,12 +72,26 @@ public:
 		bool enabled;
 		// Changes whenever a timeout is armed or the assertion is replaced
 		uint64_t timeoutGeneration;
+		// The type and name as the creator gave them, for the listing calls
+		std::string type;
+		std::string name;
 	};
 	HeldAssertion* getAssertion(int assertionId);
-	IOReturn createAssertion(PowerAssertion* which, bool enabled, int* assertionId);
+	IOReturn createAssertion(PowerAssertion* which, bool enabled, int* assertionId,
+		const std::string& type = std::string(), const std::string& name = std::string());
 	void setEnabled(HeldAssertion* assertion, bool enabled);
 	void setTimeout(int assertionId, double seconds, CFStringRef action);
 	void killAssertion(int assertionId);
+
+	// The assertion as a dictionary with the keys of kIOPMAssertionTypeKey, kIOPMAssertionLevelKey,
+	// kIOPMAssertionNameKey, kIOPMAssertionPIDKey and the assertion ID
+	CFDictionaryRef copyAssertionInfo(int assertionId, const HeldAssertion& held) const;
+	// The assertions of every process, for the listing calls
+	static void forEach(void (^visit)(AppAssertions* app));
+	int pid() const { return m_pid; }
+	const std::unordered_map<int, HeldAssertion>& held() const { return m_heldAssertions; }
+	// Tells the clients that registered with io_pm_assertion_notify that an assertion changed
+	static void postAnyChanged();
 private:
 	int m_pid;
 	std::unordered_map<int, HeldAssertion> m_heldAssertions;
