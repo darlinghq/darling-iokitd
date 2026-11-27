@@ -50,8 +50,24 @@ static int address_allowed(const char* address)
 	return strstr(address, "unixexec") == NULL;
 }
 
+/*
+ * The dbus wrapper is optional (darling src/native): on a host without libdbus-1 it still loads, but any
+ * call into it aborts the process. iokitd then died at startup and IOKit clients waited for it indefinitely.
+ * Without the library there is simply no host bus. Weak, so an older wrapper without the function counts
+ * as having the library, as before.
+ */
+extern int darling_dbus_available(void) __attribute__((weak_import));
+
+static int host_dbus_available(void)
+{
+	return darling_dbus_available == NULL || darling_dbus_available();
+}
+
 int iokitd_host_bus_address(enum iokitd_host_bus bus, char* address, size_t size)
 {
+	if (!host_dbus_available())
+		return -1;
+
 	const char* env = getenv(bus == IOKITD_SYSTEM_BUS ? "DBUS_SYSTEM_BUS_ADDRESS" : "DBUS_SESSION_BUS_ADDRESS");
 
 	if (env != NULL && env[0] != '\0')
